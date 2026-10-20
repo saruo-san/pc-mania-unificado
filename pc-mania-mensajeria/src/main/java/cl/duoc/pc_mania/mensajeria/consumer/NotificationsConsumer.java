@@ -13,15 +13,19 @@ import software.amazon.awssdk.services.sqs.SqsClient;
 public class NotificationsConsumer extends AbstractSqsConsumer {
 
     private final String queueUrl;
+    private final ConsumerControlService controlService;
 
-    public NotificationsConsumer(SqsClient sqsClient, ObjectMapper objectMapper, MessagingProperties properties) {
+    public NotificationsConsumer(SqsClient sqsClient, ObjectMapper objectMapper, MessagingProperties properties,
+                                 ConsumerControlService controlService) {
         super(sqsClient, objectMapper, event -> process(event));
         queueUrl = sqsClient.getQueueUrl(builder -> builder.queueName(
                 properties.getQueues().get("notifications").getName())).queueUrl();
+        this.controlService = controlService;
     }
 
     @Scheduled(fixedDelayString = "${pc-mania.messaging.poll-delay-ms:1000}")
     void consume() {
+        if (!controlService.isRunning("notifications")) return;
         poll(queueUrl, "notifications");
     }
 

@@ -58,6 +58,18 @@ La respuesta `202 Accepted` confirma que SNS aceptó el evento. Un evento
 `order.created` se enruta a notificaciones y tickets; `document.requested`
 solamente a documentos.
 
+Para provocar un fallo controlado durante una demostración, agrega
+`"forceFailure":"true"` en `metadata`. El consumidor registra el intento, no
+confirma el mensaje y SQS aplica la `RedrivePolicy` hasta moverlo a la DLQ.
+
+Controlar consumidores:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8081/api/messaging/admin/consumers"
+Invoke-RestMethod -Method Post -Uri "http://localhost:8081/api/messaging/admin/consumers/notifications/pause"
+Invoke-RestMethod -Method Post -Uri "http://localhost:8081/api/messaging/admin/consumers/notifications/resume"
+```
+
 Los consumidores están desactivados por defecto para permitir ejecutar
 `/health` y las pruebas sin recursos AWS creados. Después de crear la topología,
 inícialos con:

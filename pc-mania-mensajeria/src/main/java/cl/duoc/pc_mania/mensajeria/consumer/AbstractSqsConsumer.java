@@ -37,6 +37,9 @@ public abstract class AbstractSqsConsumer {
                     .getOrDefault(MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT.toString(), "1"));
             try {
                 MessagingEvent event = objectMapper.readValue(message.body(), MessagingEvent.class);
+                if ("true".equalsIgnoreCase(event.metadata() == null ? null : event.metadata().get("forceFailure"))) {
+                    throw new IllegalStateException("Fallo controlado solicitado para demostración");
+                }
                 if (processedEvents.add(event.eventId())) {
                     handler.handle(event);
                 } else {

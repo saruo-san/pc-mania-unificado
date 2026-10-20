@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 @RestController
 @RequestMapping("/api/messaging/admin")
 public class MessagingAdminController {
@@ -29,6 +30,30 @@ public class MessagingAdminController {
     @GetMapping("/topology")
     public MessagingTopology inspectTopology() {
         return adminService.inspectTopology();
+    }
+
+    @DeleteMapping("/topic")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteTopic() {
+        adminService.deleteTopic();
+    }
+
+    @DeleteMapping("/queues/{queueKey}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteQueue(@PathVariable @NotBlank String queueKey) {
+        adminService.deleteQueue(queueKey);
+    }
+
+    @GetMapping("/subscriptions")
+    public List<String> subscriptions() {
+        return adminService.subscriptions();
+    }
+
+    @DeleteMapping("/subscriptions")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteSubscription(
+            @org.springframework.web.bind.annotation.RequestParam String arn) {
+        adminService.deleteSubscription(arn);
     }
 
     @PostMapping("/queues/{queueKey}/dlq/reprocess")

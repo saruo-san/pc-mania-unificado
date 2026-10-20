@@ -45,6 +45,38 @@ Inspeccionar la topología:
 Invoke-RestMethod -Uri "http://localhost:8081/api/messaging/admin/topology"
 ```
 
+Consultar suscripciones:
+
+```powershell
+Invoke-RestMethod -Uri "http://localhost:8081/api/messaging/admin/subscriptions"
+```
+
+Eliminar una suscripción:
+
+```powershell
+Invoke-RestMethod -Method Delete `
+  -Uri "http://localhost:8081/api/messaging/admin/subscriptions?arn=ARN_DE_SUSCRIPCION"
+```
+
+Eliminar una cola y su DLQ:
+
+```powershell
+Invoke-RestMethod -Method Delete `
+  -Uri "http://localhost:8081/api/messaging/admin/queues/notifications"
+```
+
+Eliminar el tópico:
+
+```powershell
+Invoke-RestMethod -Method Delete `
+  -Uri "http://localhost:8081/api/messaging/admin/topic"
+```
+
+La inspección de topología expone los contadores SQS de mensajes visibles,
+en proceso y retrasados, además de la `RedrivePolicy`. La antigüedad del
+mensaje más antiguo se incorporará mediante CloudWatch, porque SQS no la
+expone como atributo de la cola.
+
 Publicar un evento:
 
 ```powershell

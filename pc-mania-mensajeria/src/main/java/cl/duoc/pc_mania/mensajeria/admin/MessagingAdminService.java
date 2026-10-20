@@ -4,12 +4,15 @@ import cl.duoc.pc_mania.mensajeria.config.MessagingProperties;
 import org.springframework.stereotype.Service;
 import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sns.model.CreateTopicRequest;
+import software.amazon.awssdk.services.sns.model.DeleteTopicRequest;
 import software.amazon.awssdk.services.sns.model.ListSubscriptionsByTopicRequest;
 import software.amazon.awssdk.services.sns.model.SetSubscriptionAttributesRequest;
 import software.amazon.awssdk.services.sns.model.SubscribeRequest;
 import software.amazon.awssdk.services.sns.model.Subscription;
+import software.amazon.awssdk.services.sns.model.UnsubscribeRequest;
 import software.amazon.awssdk.services.sqs.SqsClient;
 import software.amazon.awssdk.services.sqs.model.CreateQueueRequest;
+import software.amazon.awssdk.services.sqs.model.DeleteQueueRequest;
 import software.amazon.awssdk.services.sqs.model.GetQueueAttributesRequest;
 import software.amazon.awssdk.services.sqs.model.GetQueueAttributesResponse;
 import software.amazon.awssdk.services.sqs.model.Message;
@@ -78,7 +81,8 @@ public class MessagingAdminService {
                     queueArn,
                     queueUrl,
                     queue.getDlqName(),
-                    queue.getFilterPolicy()));
+                    queue.getFilterPolicy(),
+                    queueStatus(queueUrl)));
         }
         return new MessagingTopology(properties.getTopic().getName(), topicArn, resources);
     }
@@ -95,9 +99,39 @@ public class MessagingAdminService {
                     queueArn(queueUrl),
                     queueUrl,
                     queue.getDlqName(),
-                    queue.getFilterPolicy()));
+                    queue.getFilterPolicy(),
+                    queueStatus(queueUrl)));
         }
         return new MessagingTopology(properties.getTopic().getName(), topicArn, resources);
+    }
+
+    public void deleteTopic() {
+        String topicArn = snsClient.createTopic(CreateTopicRequest.builder()
+                .name(properties.getTopic().getName())
+                .build()).topicArn();
+        snsClient.deleteTopic(DeleteTopicRequest.builder().topicArn(topicArn).build());
+    }
+
+    public void deleteQueue(String queueKey) {
+        MessagingProperties.Queue queue = queue(queueKey);
+        deleteQueueByName(queue.getName());
+        deleteQueueByName(queue.getDlqName());
+    }
+
+    public List<String> subscriptions() {
+        String topicArn = snsClient.createTopic(CreateTopicRequest.builder()
+                .name(properties.getTopic().getName())
+                .build()).topicArn();
+        return snsClient.listSubscriptionsByTopic(builder -> builder.topicArn(topicArn))
+                .subscriptions().stream()
+                .map(Subscription::subscriptionArn)
+                .toList();
+    }
+
+    public void deleteSubscription(String subscriptionArn) {
+        snsClient.unsubscribe(UnsubscribeRequest.builder()
+                .subscriptionArn(subscriptionArn)
+                .build());
     }
 
     public int purgeDlq(String queueKey) {
@@ -151,6 +185,32 @@ public class MessagingAdminService {
                 .attributeNames(QueueAttributeName.QUEUE_ARN)
                 .build());
         return attributes.attributes().get(QueueAttributeName.QUEUE_ARN);
+    }
+
+    private QueueStatus queueStatus(String queueUrl) {
+        Map<QueueAttributeName, String> values = sqsClient.getQueueAttributes(GetQueueAttributesRequest.builder()
+                .queueUrl(queueUrl)
+                .attributeNames(
+                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES,
+                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE,
+                        QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_DELAYED,
+                        QueueAttributeName.REDRIVE_POLICY)
+                .build()).attributes();
+        return new QueueStatus(
+                number(values, QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES),
+                number(values, QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE),
+                number(values, QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_DELAYED),
+                0,
+                values.getOrDefault(QueueAttributeName.REDRIVE_POLICY, ""));
+    }
+
+    private long number(Map<QueueAttributeName, String> values, QueueAttributeName name) {
+        return Long.parseLong(values.getOrDefault(name, "0"));
+    }
+
+    private void deleteQueueByName(String name) {
+        String queueUrl = sqsClient.getQueueUrl(builder -> builder.queueName(name)).queueUrl();
+        sqsClient.deleteQueue(DeleteQueueRequest.builder().queueUrl(queueUrl).build());
     }
 
     private void configureTopicAccessPolicy(String queueUrl, String queueArn, String topicArn) {

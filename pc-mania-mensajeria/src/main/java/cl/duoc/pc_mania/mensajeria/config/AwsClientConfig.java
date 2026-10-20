@@ -1,5 +1,6 @@
 package cl.duoc.pc_mania.mensajeria.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.regions.Region;
@@ -8,6 +9,11 @@ import software.amazon.awssdk.services.sqs.SqsClient;
 
 @Configuration
 public class AwsClientConfig {
+
+    @Bean
+    ObjectMapper objectMapper() {
+        return new ObjectMapper();
+    }
 
     @Bean
     SnsClient snsClient(MessagingProperties properties) {

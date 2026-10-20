@@ -7,6 +7,8 @@ spring:
 
 pc-mania:
   messaging:
+    poll-delay-ms: ${MESSAGING_POLL_DELAY_MS:1000}
+    consumers-enabled: ${MESSAGING_CONSUMERS_ENABLED:false}
     region: ${AWS_REGION:us-east-1}
     topic:
       name: ${SNS_TOPIC_NAME:pc-mania-events}

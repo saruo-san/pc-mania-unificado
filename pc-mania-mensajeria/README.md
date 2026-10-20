@@ -10,6 +10,8 @@ Microservicio Spring Boot para la mensajería asíncrona de PC Mania con Amazon 
 - Redrive Policy con `maxReceiveCount` configurable.
 - Suscripciones con entrega directa (`RawMessageDelivery`) y filtros por `eventType`.
 - API administrativa para crear e inspeccionar la topología, reprocesar y purgar DLQ.
+- Productor REST de eventos en `/api/messaging/events`.
+- Consumidores por dominio para notificaciones, tickets y documentos.
 
 Los nombres, retenciones, filtros y políticas están centralizados en
 `src/main/resources/application.yml`. El servicio utiliza la cadena estándar de
@@ -42,6 +44,32 @@ Inspeccionar la topología:
 ```powershell
 Invoke-RestMethod -Uri "http://localhost:8081/api/messaging/admin/topology"
 ```
+
+Publicar un evento:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://localhost:8081/api/messaging/events" `
+  -ContentType "application/json" `
+  -Body '{"eventId":"evt-001","eventType":"order.created","payload":"pedido creado","metadata":{"source":"pc-mania"}}'
+```
+
+La respuesta `202 Accepted` confirma que SNS aceptó el evento. Un evento
+`order.created` se enruta a notificaciones y tickets; `document.requested`
+solamente a documentos.
+
+Los consumidores están desactivados por defecto para permitir ejecutar
+`/health` y las pruebas sin recursos AWS creados. Después de crear la topología,
+inícialos con:
+
+```powershell
+$env:MESSAGING_CONSUMERS_ENABLED = "true"
+.\mvnw.cmd spring-boot:run
+```
+
+Cada consumidor confirma explícitamente los mensajes procesados con
+`DeleteMessage`. Ante un error conserva el mensaje, registra `messageId`,
+intento y causa, y deja que SQS aplique la `RedrivePolicy`.
 
 Reprocesar una DLQ:
 

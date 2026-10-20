@@ -1,0 +1,37 @@
+server:
+  port: ${SERVER_PORT:8081}
+
+spring:
+  application:
+    name: pc-mania-mensajeria
+
+pc-mania:
+  messaging:
+    region: ${AWS_REGION:us-east-1}
+    topic:
+      name: ${SNS_TOPIC_NAME:pc-mania-events}
+    queues:
+      notifications:
+        name: ${SQS_NOTIFICATIONS_QUEUE_NAME:pc-mania-notifications}
+        dlq-name: ${DLQ_NOTIFICATIONS_QUEUE_NAME:pc-mania-notifications-dlq}
+        retention-seconds: ${SQS_NOTIFICATIONS_RETENTION_SECONDS:345600}
+        dlq-retention-seconds: ${DLQ_NOTIFICATIONS_RETENTION_SECONDS:1209600}
+        visibility-timeout-seconds: ${SQS_NOTIFICATIONS_VISIBILITY_TIMEOUT_SECONDS:30}
+        max-receive-count: ${SQS_NOTIFICATIONS_MAX_RECEIVE_COUNT:3}
+        filter-policy: '{"eventType":["product.created","product.updated","product.deleted","order.created"]}'
+      tickets:
+        name: ${SQS_TICKETS_QUEUE_NAME:pc-mania-tickets}
+        dlq-name: ${DLQ_TICKETS_QUEUE_NAME:pc-mania-tickets-dlq}
+        retention-seconds: ${SQS_TICKETS_RETENTION_SECONDS:345600}
+        dlq-retention-seconds: ${DLQ_TICKETS_RETENTION_SECONDS:1209600}
+        visibility-timeout-seconds: ${SQS_TICKETS_VISIBILITY_TIMEOUT_SECONDS:30}
+        max-receive-count: ${SQS_TICKETS_MAX_RECEIVE_COUNT:3}
+        filter-policy: '{"eventType":["order.created"]}'
+      documents:
+        name: ${SQS_DOCUMENTS_QUEUE_NAME:pc-mania-documents}
+        dlq-name: ${DLQ_DOCUMENTS_QUEUE_NAME:pc-mania-documents-dlq}
+        retention-seconds: ${SQS_DOCUMENTS_RETENTION_SECONDS:345600}
+        dlq-retention-seconds: ${DLQ_DOCUMENTS_RETENTION_SECONDS:1209600}
+        visibility-timeout-seconds: ${SQS_DOCUMENTS_VISIBILITY_TIMEOUT_SECONDS:30}
+        max-receive-count: ${SQS_DOCUMENTS_MAX_RECEIVE_COUNT:3}
+        filter-policy: '{"eventType":["document.requested"]}'

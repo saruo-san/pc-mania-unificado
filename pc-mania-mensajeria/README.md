@@ -77,6 +77,27 @@ en proceso y retrasados, además de la `RedrivePolicy`. La antigüedad del
 mensaje más antiguo se incorporará mediante CloudWatch, porque SQS no la
 expone como atributo de la cola.
 
+Configurar las alarmas de CloudWatch para las tres DLQ:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri "http://localhost:8081/api/messaging/admin/cloudwatch/dlq-alarms"
+```
+
+Consultar la política de retención y limpieza:
+
+```powershell
+Invoke-RestMethod `
+  -Uri "http://localhost:8081/api/messaging/admin/cloudwatch/retention-policy"
+```
+
+Las alarmas se crean en el namespace `AWS/SQS` con la métrica
+`ApproximateNumberOfMessagesVisible` y umbral de un mensaje. Para esta
+demostración las acciones están desactivadas; el estado de la alarma se
+consulta en CloudWatch. Las colas principales retienen mensajes durante
+4 días y las DLQ durante 14 días. La purga se mantiene como una operación
+manual y explícita para evitar eliminar evidencia antes de la presentación.
+
 Publicar un evento:
 
 ```powershell

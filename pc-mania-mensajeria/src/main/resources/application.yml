@@ -5,6 +5,18 @@ spring:
   application:
     name: pc-mania-mensajeria
 
+security:
+  cognito:
+    client:
+      issuer: ${COGNITO_CLIENT_ISSUER}
+      client-id: ${COGNITO_CLIENT_ID}
+    admin:
+      issuer: ${COGNITO_ADMIN_ISSUER}
+      client-id: ${COGNITO_ADMIN_CLIENT_ID}
+  messaging:
+    write-scope: ${MESSAGING_WRITE_SCOPE:pcmania-api/write}
+    admin-scope: ${MESSAGING_ADMIN_SCOPE:pcmania-api/write}
+
 pc-mania:
   messaging:
     poll-delay-ms: ${MESSAGING_POLL_DELAY_MS:1000}

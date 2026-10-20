@@ -1,0 +1,15 @@
+pc-mania:
+  messaging:
+    region: us-east-1
+
+security:
+  cognito:
+    client:
+      issuer: https://cognito-idp.us-east-1.amazonaws.com/test-client
+      client-id: test-client-id
+    admin:
+      issuer: https://cognito-idp.us-east-1.amazonaws.com/test-admin
+      client-id: test-admin-id
+  messaging:
+    write-scope: pcmania-api/write
+    admin-scope: pcmania-api/write

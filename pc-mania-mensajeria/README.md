@@ -24,6 +24,12 @@ fuera del repositorio:
 
 ```powershell
 $env:AWS_REGION = "us-east-1"
+$env:COGNITO_CLIENT_ISSUER = "https://cognito-idp.us-east-1.amazonaws.com/REGION_POOL_CLIENTE"
+$env:COGNITO_CLIENT_ID = "CLIENT_ID_CLIENTE"
+$env:COGNITO_ADMIN_ISSUER = "https://cognito-idp.us-east-1.amazonaws.com/REGION_POOL_ADMIN"
+$env:COGNITO_ADMIN_CLIENT_ID = "CLIENT_ID_ADMIN"
+# Para separar permisos, se puede definir un scope administrativo propio:
+# $env:MESSAGING_ADMIN_SCOPE = "pcmania-api/admin"
 .\mvnw.cmd spring-boot:run
 ```
 
@@ -36,13 +42,15 @@ GET http://localhost:8081/health
 Crear la topología AWS:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri "http://localhost:8081/api/messaging/admin/topology"
+Invoke-RestMethod -Method Post -Uri "http://localhost:8081/api/messaging/admin/topology" `
+  -Headers @{ Authorization = "Bearer TOKEN_ADMIN" }
 ```
 
 Inspeccionar la topología:
 
 ```powershell
-Invoke-RestMethod -Uri "http://localhost:8081/api/messaging/admin/topology"
+Invoke-RestMethod -Uri "http://localhost:8081/api/messaging/admin/topology" `
+  -Headers @{ Authorization = "Bearer TOKEN_ADMIN" }
 ```
 
 Consultar suscripciones:
@@ -103,6 +111,7 @@ Publicar un evento:
 ```powershell
 Invoke-RestMethod -Method Post `
   -Uri "http://localhost:8081/api/messaging/events" `
+  -Headers @{ Authorization = "Bearer TOKEN_CON_PERMISO_WRITE" } `
   -ContentType "application/json" `
   -Body '{"eventId":"evt-001","eventType":"order.created","payload":"pedido creado","metadata":{"source":"pc-mania"}}'
 ```
@@ -150,6 +159,14 @@ Invoke-RestMethod -Method Delete -Uri "http://localhost:8081/api/messaging/admin
 
 ## Seguridad
 
-Los endpoints administrativos todavía están destinados a la primera iteración
-local. Antes de exponerlos mediante API Gateway se debe integrar Cognito/JWT y
-autorizar las operaciones administrativas con un scope exclusivo.
+Todos los endpoints, excepto `/health`, requieren un access token JWT de
+Cognito. El servicio valida firma, emisor, expiración, `token_use=access` y
+`client_id`. El endpoint productor requiere el scope configurado en
+`MESSAGING_WRITE_SCOPE` y la administración requiere
+`MESSAGING_ADMIN_SCOPE`; por compatibilidad local ambos usan
+`pcmania-api/write` por defecto, pero en AWS se recomienda crear y usar
+`pcmania-api/admin` exclusivamente para las operaciones administrativas.
+
+Un token sin autenticación recibe `401 Unauthorized`; un token válido sin el
+scope requerido recibe `403 Forbidden`. Los tokens se envían únicamente desde
+el cliente o API Gateway y nunca se almacenan en el repositorio.

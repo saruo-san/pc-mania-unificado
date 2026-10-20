@@ -1,9 +1,12 @@
 package cl.duoc.pc_mania.app.controller;
 
 import cl.duoc.pc_mania.app.model.Producto;
+import cl.duoc.pc_mania.app.messaging.MessagingEventClient;
 import cl.duoc.pc_mania.app.service.ProductoService;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,9 +24,11 @@ import java.util.List;
 public class ProductoController {
 
     private final ProductoService productoService;
+    private final MessagingEventClient messagingEventClient;
 
-    public ProductoController(ProductoService productoService) {
+    public ProductoController(ProductoService productoService, MessagingEventClient messagingEventClient) {
         this.productoService = productoService;
+        this.messagingEventClient = messagingEventClient;
     }
 
     @GetMapping
@@ -38,18 +43,31 @@ public class ProductoController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public Producto crear(@Valid @RequestBody Producto nuevo) {
-        return productoService.crear(nuevo);
+    public Producto crear(
+            @Valid @RequestBody Producto nuevo,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
+        Producto creado = productoService.crear(nuevo);
+        messagingEventClient.publishProductEvent("product.created", creado, authorizationHeader);
+        return creado;
     }
 
     @PutMapping("/{id}")
-    public Producto actualizar(@PathVariable Long id, @Valid @RequestBody Producto datos) {
-        return productoService.actualizar(id, datos);
+    public Producto actualizar(
+            @PathVariable Long id,
+            @Valid @RequestBody Producto datos,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
+        Producto actualizado = productoService.actualizar(id, datos);
+        messagingEventClient.publishProductEvent("product.updated", actualizado, authorizationHeader);
+        return actualizado;
     }
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void eliminar(@PathVariable Long id) {
+    public void eliminar(
+            @PathVariable Long id,
+            @RequestHeader(value = HttpHeaders.AUTHORIZATION, required = false) String authorizationHeader) {
+        Producto eliminado = productoService.buscarPorId(id);
         productoService.eliminar(id);
+        messagingEventClient.publishProductEvent("product.deleted", eliminado, authorizationHeader);
     }
 }

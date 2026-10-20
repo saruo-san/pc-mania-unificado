@@ -16,6 +16,8 @@ API REST para administrar el catálogo de productos de PC Mania.
 - Manejo centralizado de errores para productos inexistentes y datos inválidos.
 - CORS habilitado para los frontends locales en los puertos 5173 y 5174.
 - Carga de tres productos de ejemplo al iniciar.
+- Publicación opcional de eventos `product.created`, `product.updated` y
+  `product.deleted` hacia `pc-mania-mensajeria`.
 
 ## Endpoints
 
@@ -44,10 +46,23 @@ Los campos `nombre`, `marca` y `categoria` son obligatorios. El `precio` debe se
 Desde esta carpeta:
 
 ```powershell
+$env:MESSAGING_EVENTS_ENABLED = "false"
 .\mvnw.cmd spring-boot:run
 ```
 
 La API queda disponible en `http://localhost:8080`.
+
+Para activar la publicación de eventos, inicia también
+`pc-mania-mensajeria` en el puerto 8081 y define:
+
+```powershell
+$env:MESSAGING_SERVICE_URL = "http://localhost:8081"
+$env:MESSAGING_EVENTS_ENABLED = "true"
+```
+
+Cuando un usuario autenticado con scope `pcmania-api/write` crea, actualiza o
+elimina un producto, el backend reenvía su access token al microservicio de
+mensajería. La tienda mantiene únicamente el scope `pcmania-api/read`.
 
 Para probar y compilar:
 
@@ -60,4 +75,8 @@ Para probar y compilar:
 
 Los productos se almacenan en memoria mediante un `ConcurrentHashMap`, por lo que los cambios se pierden al reiniciar. Actualmente no hay una base de datos configurada.
 
-Los frontends obtienen tokens de Cognito y los envían al API, pero este backend todavía no implementa filtros JWT para validar directamente esos tokens. La autenticación completa del API debe agregarse antes de un despliegue productivo.
+El backend valida los tokens Cognito y publica eventos de dominio solo cuando
+`MESSAGING_EVENTS_ENABLED=true`. Si el microservicio no está disponible o
+rechaza el evento, la operación devuelve un error explícito; la persistencia
+en memoria puede haber ocurrido antes de ese error y requiere una futura
+implementación de outbox para garantizar consistencia transaccional.

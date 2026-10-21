@@ -1,5 +1,8 @@
 # Secrets and local environment
 credenciales.md
+INFORME_TRABAJO_2026-10-20.md
+TORPEDO_PRESENTACION_EVALUACION_2.md
+evaluacion_parcial_2_DSY1107.md
 .env
 .env.*
 !.env.example

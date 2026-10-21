@@ -5,11 +5,72 @@ en el repositorio. Los comandos están escritos para PowerShell en Windows.
 
 ## 1. Requisitos
 
-- AWS CLI autenticado en `us-east-1`.
-- Java instalado.
-- Node.js y npm instalados.
-- Acceso local al repositorio.
+### 1.1 Programas que deben instalarse
+
+| Programa | Versión recomendada | Para qué se utiliza |
+|---|---|---|
+| Git | versión actual | Clonar y actualizar el repositorio |
+| JDK | Java 17 | Ejecutar backend y mensajería |
+| Node.js | 20 LTS o superior | Ejecutar los frontends React/Vite |
+| npm | Incluido con Node.js | Instalar dependencias y ejecutar frontends |
+| AWS CLI | Versión 2 | Validar la cuenta y consultar AWS |
+| Navegador | Chrome, Edge o Firefox actualizado | Usar admin, tienda y Cognito |
+
+Maven no necesita instalarse por separado: backend y mensajería incluyen
+`mvnw.cmd`, que descarga y utiliza Maven Wrapper.
+
+Comprueba las instalaciones:
+
+```powershell
+git --version
+java -version
+node --version
+npm --version
+aws --version
+```
+
+El JDK debe incluir `javac`, no solamente un runtime de Java.
+
+### 1.2 Dependencias del proyecto
+
+Las dependencias se descargan automáticamente desde los manifiestos al
+ejecutar `.\mvnw.cmd spring-boot:run` o `npm install`. No se deben copiar
+manualmente dentro del repositorio.
+
+Backend y mensajería utilizan Java 17 y Spring Boot `4.1.1`. El backend
+incluye Spring Web MVC, Spring Security, OAuth2 Resource Server, Validation y
+Jackson. Mensajería agrega AWS SDK SNS, SQS y CloudWatch, además de las
+dependencias de pruebas.
+
+El panel admin y la tienda son aplicaciones React con TypeScript y Vite.
+Utilizan React, React DOM, AWS Amplify para Cognito, TypeScript, Vite y ESLint.
+Cada frontend tiene su propio `node_modules`, por lo que se ejecuta `npm
+install` dentro de cada carpeta.
+
+Versiones relevantes:
+
+```text
+Java: 17
+Spring Boot: 4.1.1
+AWS SDK de mensajería: 2.31.63
+React: 19.2.8
+AWS Amplify: 6.20.0
+Vite: 8.2.2
+TypeScript: 6.0.2
+```
+
+### 1.3 Servicios externos y configuración
+
+Además de los programas locales, se necesita:
+
+- Una cuenta AWS con acceso a SNS, SQS y CloudWatch.
+- Un User Pool de Cognito.
+- Un App Client para cliente y otro para administrador.
+- Los scopes `pcmania-api/read` y `pcmania-api/write`.
 - Usuarios Cognito creados para cliente y administrador.
+- Recursos AWS de PC Mania en `us-east-1`.
+- Credenciales AWS mediante perfil local o variables temporales.
+- Acceso local al repositorio.
 
 Verifica AWS sin mostrar secretos:
 

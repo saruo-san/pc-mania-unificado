@@ -191,6 +191,80 @@ No se deben versionar credenciales, tokens, archivos `.env` ni claves AWS.
 Spring Boot recibe la configuración mediante variables de entorno y AWS SDK
 utiliza su cadena estándar de credenciales.
 
+## Requisitos de instalación
+
+### Programas necesarios
+
+| Programa | Versión recomendada | Uso |
+|---|---|---|
+| Git | versión actual | Descargar y actualizar el repositorio |
+| JDK | Java 17 | Backend y microservicio de mensajería |
+| Node.js | 20 LTS o superior | Frontends React/Vite |
+| npm | Incluido con Node.js | Dependencias y scripts frontend |
+| AWS CLI | Versión 2 | Verificar cuenta y recursos AWS |
+| Navegador actualizado | Chrome, Edge o Firefox | Panel, tienda y autenticación |
+
+Maven no debe instalarse manualmente: los módulos Java incluyen `mvnw.cmd` y
+utilizan Maven Wrapper. Verifica el entorno con:
+
+```powershell
+git --version
+java -version
+node --version
+npm --version
+aws --version
+```
+
+### Dependencias por módulo
+
+Las dependencias se instalan automáticamente desde los manifiestos. No se
+guardan `node_modules` ni las dependencias Maven en el repositorio.
+
+| Módulo | Dependencias principales |
+|---|---|
+| `pc-mania-backend` | Spring Web MVC, Security, OAuth2 Resource Server, Validation y Jackson |
+| `pc-mania-mensajeria` | Spring Boot, Security, OAuth2 Resource Server, Validation, Jackson, AWS SDK SNS, SQS y CloudWatch |
+| `pc-mania-admin` | React, React DOM, AWS Amplify, TypeScript, Vite y ESLint |
+| `pc-mania-tienda` | React, React DOM, AWS Amplify, TypeScript, Vite y ESLint |
+
+Versiones relevantes:
+
+- Java: `17`.
+- Spring Boot: `4.1.1`.
+- AWS SDK utilizado por mensajería: `2.31.63`.
+- React: `19.2.8`.
+- AWS Amplify: `6.20.0`.
+- Vite: `8.2.2`.
+- TypeScript: `6.0.2`.
+
+Las versiones completas están en los `pom.xml`, `package.json` y
+`package-lock.json` de cada módulo.
+
+### Instalación de dependencias
+
+Para los módulos Java, Maven Wrapper descarga las dependencias al ejecutar:
+
+```powershell
+Set-Location C:\Users\Bruno\Downloads\pc-mania\pc-mania-backend
+.\mvnw.cmd test
+
+Set-Location C:\Users\Bruno\Downloads\pc-mania\pc-mania-mensajeria
+.\mvnw.cmd test
+```
+
+Para cada frontend, ejecutar una vez:
+
+```powershell
+Set-Location C:\Users\Bruno\Downloads\pc-mania\pc-mania-admin
+npm install
+
+Set-Location C:\Users\Bruno\Downloads\pc-mania\pc-mania-tienda
+npm install
+```
+
+Después de instalar, el arranque completo está documentado en
+[GUIA_INICIO_SERVICIOS.md](./GUIA_INICIO_SERVICIOS.md).
+
 El panel admin requiere localmente:
 
 ```text

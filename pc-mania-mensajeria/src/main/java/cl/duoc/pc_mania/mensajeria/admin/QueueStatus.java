@@ -5,5 +5,6 @@ public record QueueStatus(
         long inFlightMessages,
         long delayedMessages,
         long oldestMessageAgeSeconds,
+        long deadLetterMessages,
         String redrivePolicy) {
 }

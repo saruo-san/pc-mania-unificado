@@ -5,6 +5,7 @@ export const config = {
   redirectSignIn: import.meta.env.VITE_REDIRECT_SIGN_IN as string | undefined,
   redirectSignOut: import.meta.env.VITE_REDIRECT_SIGN_OUT as string | undefined,
   apiUrl: import.meta.env.VITE_API_URL as string | undefined,
+  messagingApiUrl: (import.meta.env.VITE_MESSAGING_API_URL as string | undefined) ?? 'http://localhost:8081',
 };
 
 export function configFaltante(): string[] {

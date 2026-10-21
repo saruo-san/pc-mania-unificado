@@ -1,6 +1,21 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { fetchAuthSession, signInWithRedirect, signOut } from 'aws-amplify/auth';
-import { actualizarProducto, agregarProducto, eliminarProducto, obtenerCatalogo, type NuevoProducto, type Producto } from './api';
+import {
+  actualizarProducto,
+  agregarProducto,
+  controlarConsumidor,
+  crearAlarmasDlq,
+  eliminarProducto,
+  obtenerCatalogo,
+  obtenerConsumidores,
+  obtenerPoliticaRetencion,
+  obtenerTopologia,
+  reprocesarDlq,
+  type ConsumerStates,
+  type MessagingTopology,
+  type NuevoProducto,
+  type Producto,
+} from './api';
 import { configFaltante, isConfigOk } from './config';
 import './App.css';
 
@@ -108,6 +123,11 @@ function App() {
   const [pagina, setPagina] = useState(1);
   const [theme, setTheme] = useState<ThemeMode>(getStoredTheme);
   const [settingsState, setSettingsState] = useState<'closed' | 'open' | 'closing'>('closed');
+  const [mensajeria, setMensajeria] = useState<MessagingTopology | null>(null);
+  const [consumidores, setConsumidores] = useState<ConsumerStates>({});
+  const [politicaRetencion, setPoliticaRetencion] = useState<Record<string, string>>({});
+  const [cargandoMensajeria, setCargandoMensajeria] = useState(false);
+  const [mensajeMensajeria, setMensajeMensajeria] = useState<string | null>(null);
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -144,10 +164,40 @@ function App() {
     }
   }
 
+  async function cargarMensajeria() {
+    setCargandoMensajeria(true);
+    setMensajeMensajeria(null);
+    try {
+      const [topologia, estados, politica] = await Promise.all([
+        obtenerTopologia(),
+        obtenerConsumidores(),
+        obtenerPoliticaRetencion(),
+      ]);
+      setMensajeria(topologia);
+      setConsumidores(estados);
+      setPoliticaRetencion(politica);
+    } catch (err) {
+      setMensajeMensajeria(err instanceof Error ? err.message : 'No se pudo cargar la mensajería');
+    } finally {
+      setCargandoMensajeria(false);
+    }
+  }
+
+  async function ejecutarAccionMensajeria(action: () => Promise<unknown>, mensaje: string) {
+    try {
+      await action();
+      setMensajeMensajeria(mensaje);
+      await cargarMensajeria();
+    } catch (err) {
+      setMensajeMensajeria(err instanceof Error ? err.message : 'No se pudo completar la operación');
+    }
+  }
+
   useEffect(() => {
     if (!logueado) return;
 
     void cargarCatalogo();
+    void cargarMensajeria();
   }, [logueado]);
 
   useEffect(() => {
@@ -350,6 +400,65 @@ function App() {
             </form>
             {error && <p className="error">No se pudo completar la operación: {error}</p>}
             {mensajeExito && <p className="exito" role="status">{mensajeExito}</p>}
+            <section className="inventario-section">
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">AWS / MENSAJERÍA</p>
+                  <h2>Operación de colas</h2>
+                </div>
+                <button type="button" className="refresh-button" disabled={cargandoMensajeria} onClick={() => void cargarMensajeria()}>
+                  {cargandoMensajeria ? 'Consultando...' : 'Actualizar estado'}
+                </button>
+              </div>
+              {mensajeMensajeria && <p className="mensaje">{mensajeMensajeria}</p>}
+              {mensajeria && (
+                <>
+                  <p className="mensaje">Tópico: <strong>{mensajeria.topicName}</strong></p>
+                  <ul className="lista-inventario">
+                    {mensajeria.queues.map((queue) => {
+                      const consumerKey = queue.name.replace('pc-mania-', '');
+                      const running = consumidores[consumerKey] !== false;
+                      return (
+                        <li key={queue.name}>
+                          <div>
+                            <strong>{queue.name}</strong>
+                            <small>
+                              visibles {queue.status.visibleMessages} · en proceso {queue.status.inFlightMessages}
+                              {' · '}antigüedad {queue.status.oldestMessageAgeSeconds}s
+                              {' · '}DLQ {queue.status.deadLetterMessages}
+                            </small>
+                          </div>
+                          <div className="item-actions">
+                            <button type="button" className="ghost-button small" onClick={() => void ejecutarAccionMensajeria(
+                              () => controlarConsumidor(consumerKey, running ? 'pause' : 'resume'),
+                              running ? `${consumerKey}: consumidor pausado` : `${consumerKey}: consumidor reanudado`,
+                            )}>
+                              {running ? 'Pausar' : 'Reanudar'}
+                            </button>
+                            <button type="button" className="ghost-button small" onClick={() => void ejecutarAccionMensajeria(
+                              () => reprocesarDlq(consumerKey),
+                              `${consumerKey}: DLQ reprocesada`,
+                            )}>
+                              Reprocesar DLQ
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="mensaje">
+                    Retención principal: {politicaRetencion.mainQueueRetention ?? 'no disponible'}
+                    {' · '}DLQ: {politicaRetencion.dlqRetention ?? 'no disponible'}
+                  </p>
+                  <button type="button" className="ghost-button small" onClick={() => void ejecutarAccionMensajeria(
+                    () => crearAlarmasDlq(),
+                    'Alarmas de DLQ configuradas',
+                  )}>
+                    Configurar alarmas DLQ
+                  </button>
+                </>
+              )}
+            </section>
             <section className="inventario-section">
               <div className="section-heading">
                 <div>

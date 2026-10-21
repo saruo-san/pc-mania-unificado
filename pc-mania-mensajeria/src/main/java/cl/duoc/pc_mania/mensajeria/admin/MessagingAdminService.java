@@ -6,6 +6,7 @@ import software.amazon.awssdk.services.sns.SnsClient;
 import software.amazon.awssdk.services.sns.model.CreateTopicRequest;
 import software.amazon.awssdk.services.sns.model.DeleteTopicRequest;
 import software.amazon.awssdk.services.sns.model.ListSubscriptionsByTopicRequest;
+import software.amazon.awssdk.services.sns.model.ListTopicsRequest;
 import software.amazon.awssdk.services.sns.model.SetSubscriptionAttributesRequest;
 import software.amazon.awssdk.services.sns.model.SubscribeRequest;
 import software.amazon.awssdk.services.sns.model.Subscription;
@@ -20,9 +21,15 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 import software.amazon.awssdk.services.sqs.model.QueueAttributeName;
 import software.amazon.awssdk.services.sqs.model.SetQueueAttributesRequest;
+import software.amazon.awssdk.services.cloudwatch.CloudWatchClient;
+import software.amazon.awssdk.services.cloudwatch.model.Dimension;
+import software.amazon.awssdk.services.cloudwatch.model.GetMetricStatisticsRequest;
+import software.amazon.awssdk.services.cloudwatch.model.Statistic;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -31,11 +38,14 @@ public class MessagingAdminService {
 
     private final SnsClient snsClient;
     private final SqsClient sqsClient;
+    private final CloudWatchClient cloudWatchClient;
     private final MessagingProperties properties;
 
-    public MessagingAdminService(SnsClient snsClient, SqsClient sqsClient, MessagingProperties properties) {
+    public MessagingAdminService(SnsClient snsClient, SqsClient sqsClient,
+                                 CloudWatchClient cloudWatchClient, MessagingProperties properties) {
         this.snsClient = snsClient;
         this.sqsClient = sqsClient;
+        this.cloudWatchClient = cloudWatchClient;
         this.properties = properties;
     }
 
@@ -82,15 +92,13 @@ public class MessagingAdminService {
                     queueUrl,
                     queue.getDlqName(),
                     queue.getFilterPolicy(),
-                    queueStatus(queueUrl)));
+                    queueStatus(queueUrl, queue.getDlqName())));
         }
         return new MessagingTopology(properties.getTopic().getName(), topicArn, resources);
     }
 
     public MessagingTopology inspectTopology() {
-        String topicArn = snsClient.createTopic(CreateTopicRequest.builder()
-                .name(properties.getTopic().getName())
-                .build()).topicArn();
+        String topicArn = existingTopicArn();
         List<MessagingResource> resources = new ArrayList<>();
         for (MessagingProperties.Queue queue : properties.getQueues().values()) {
             String queueUrl = sqsClient.getQueueUrl(builder -> builder.queueName(queue.getName())).queueUrl();
@@ -100,15 +108,13 @@ public class MessagingAdminService {
                     queueUrl,
                     queue.getDlqName(),
                     queue.getFilterPolicy(),
-                    queueStatus(queueUrl)));
+                    queueStatus(queueUrl, queue.getDlqName())));
         }
         return new MessagingTopology(properties.getTopic().getName(), topicArn, resources);
     }
 
     public void deleteTopic() {
-        String topicArn = snsClient.createTopic(CreateTopicRequest.builder()
-                .name(properties.getTopic().getName())
-                .build()).topicArn();
+        String topicArn = existingTopicArn();
         snsClient.deleteTopic(DeleteTopicRequest.builder().topicArn(topicArn).build());
     }
 
@@ -119,13 +125,20 @@ public class MessagingAdminService {
     }
 
     public List<String> subscriptions() {
-        String topicArn = snsClient.createTopic(CreateTopicRequest.builder()
-                .name(properties.getTopic().getName())
-                .build()).topicArn();
+        String topicArn = existingTopicArn();
         return snsClient.listSubscriptionsByTopic(builder -> builder.topicArn(topicArn))
                 .subscriptions().stream()
                 .map(Subscription::subscriptionArn)
                 .toList();
+    }
+
+    private String existingTopicArn() {
+        String topicName = properties.getTopic().getName();
+        return snsClient.listTopics(ListTopicsRequest.builder().build()).topics().stream()
+                .map(topic -> topic.topicArn())
+                .filter(arn -> arn.endsWith(":" + topicName))
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("El tópico no existe: " + topicName));
     }
 
     public void deleteSubscription(String subscriptionArn) {
@@ -187,7 +200,7 @@ public class MessagingAdminService {
         return attributes.attributes().get(QueueAttributeName.QUEUE_ARN);
     }
 
-    private QueueStatus queueStatus(String queueUrl) {
+    private QueueStatus queueStatus(String queueUrl, String dlqName) {
         Map<QueueAttributeName, String> values = sqsClient.getQueueAttributes(GetQueueAttributesRequest.builder()
                 .queueUrl(queueUrl)
                 .attributeNames(
@@ -196,12 +209,36 @@ public class MessagingAdminService {
                         QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_DELAYED,
                         QueueAttributeName.REDRIVE_POLICY)
                 .build()).attributes();
+        String dlqUrl = sqsClient.getQueueUrl(builder -> builder.queueName(dlqName)).queueUrl();
+        Map<QueueAttributeName, String> dlqValues = sqsClient.getQueueAttributes(GetQueueAttributesRequest.builder()
+                .queueUrl(dlqUrl)
+                .attributeNames(QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES)
+                .build()).attributes();
         return new QueueStatus(
                 number(values, QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES),
                 number(values, QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_NOT_VISIBLE),
                 number(values, QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES_DELAYED),
-                0,
+                oldestMessageAgeSeconds(queueUrl),
+                number(dlqValues, QueueAttributeName.APPROXIMATE_NUMBER_OF_MESSAGES),
                 values.getOrDefault(QueueAttributeName.REDRIVE_POLICY, ""));
+    }
+
+    private long oldestMessageAgeSeconds(String queueUrl) {
+        String queueName = queueUrl.substring(queueUrl.lastIndexOf('/') + 1);
+        Instant end = Instant.now();
+        var response = cloudWatchClient.getMetricStatistics(GetMetricStatisticsRequest.builder()
+                .namespace("AWS/SQS")
+                .metricName("ApproximateAgeOfOldestMessage")
+                .dimensions(Dimension.builder().name("QueueName").value(queueName).build())
+                .startTime(end.minus(Duration.ofMinutes(10)))
+                .endTime(end)
+                .period(60)
+                .statistics(Statistic.MAXIMUM)
+                .build());
+        return response.datapoints().stream()
+                .mapToLong(point -> point.maximum() == null ? 0L : point.maximum().longValue())
+                .max()
+                .orElse(0L);
     }
 
     private long number(Map<QueueAttributeName, String> values, QueueAttributeName name) {

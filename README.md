@@ -104,6 +104,70 @@ MaxReceiveCount: 3
 CloudWatch tiene alarmas configuradas para detectar mensajes visibles en cada
 DLQ y el dashboard consulta la antigüedad aproximada del mensaje más antiguo.
 
+## Diagrama de arquitectura
+
+GitHub renderiza el siguiente diagrama Mermaid directamente en esta página. La
+vista detallada de componentes está disponible en
+[architecture-diagram.md](./.github/modernize/assessment/engines/facts/architecture-diagram.md).
+
+<!-- mermaid-checked: no \n, no em-dash/en-dash, no {} in labels, subgraphs are id["label"], arrows are -->|"label"|, all subgraphs closed by end, ids unique -->
+~~~mermaid
+flowchart TD
+    subgraph ReadmeClients["Frontend clients"]
+        ReadmeStore["Tienda React port 5173"]
+        ReadmeAdmin["Admin React port 5174"]
+    end
+    subgraph ReadmeProduct["Product API port 8080"]
+        ReadmeApi["Spring REST API"]
+        ReadmeProductService["Product service"]
+        ReadmeCatalog[("In memory catalog")]
+        ReadmeEvents["Event client"]
+    end
+    subgraph ReadmeMessaging["Messaging API port 8081"]
+        ReadmeProducer["Event producer"]
+        ReadmeAdminApi["Messaging administration"]
+        ReadmeNotifications["Notifications consumer"]
+        ReadmeTickets["Tickets consumer"]
+        ReadmeDocuments["Documents consumer"]
+    end
+    subgraph ReadmeAws["AWS services"]
+        ReadmeTopic["SNS pc-mania-events"]
+        ReadmeNotificationQueue[("SQS notifications")]
+        ReadmeTicketQueue[("SQS tickets")]
+        ReadmeDocumentQueue[("SQS documents")]
+        ReadmeNotificationDlq[("DLQ notifications")]
+        ReadmeTicketDlq[("DLQ tickets")]
+        ReadmeDocumentDlq[("DLQ documents")]
+        ReadmeCloudWatch["CloudWatch alarms"]
+    end
+    subgraph ReadmeIdentity["Identity"]
+        ReadmeCognito["Amazon Cognito JWT"]
+    end
+
+    ReadmeStore -->|"read catalog"| ReadmeApi
+    ReadmeAdmin -->|"CRUD products"| ReadmeApi
+    ReadmeAdmin -->|"operate queues"| ReadmeAdminApi
+    ReadmeApi --> ReadmeProductService
+    ReadmeProductService -->|"store product"| ReadmeCatalog
+    ReadmeProductService -->|"publish product event"| ReadmeEvents
+    ReadmeEvents -->|"HTTP event"| ReadmeProducer
+    ReadmeProducer -->|"publish"| ReadmeTopic
+    ReadmeTopic -->|"filtered fanout"| ReadmeNotificationQueue
+    ReadmeTopic -->|"filtered fanout"| ReadmeTicketQueue
+    ReadmeTopic -->|"filtered fanout"| ReadmeDocumentQueue
+    ReadmeNotificationQueue --> ReadmeNotifications
+    ReadmeTicketQueue --> ReadmeTickets
+    ReadmeDocumentQueue --> ReadmeDocuments
+    ReadmeNotificationQueue -->|"after 3 failures"| ReadmeNotificationDlq
+    ReadmeTicketQueue -->|"after 3 failures"| ReadmeTicketDlq
+    ReadmeDocumentQueue -->|"after 3 failures"| ReadmeDocumentDlq
+    ReadmeAdminApi -->|"metrics and alarms"| ReadmeCloudWatch
+    ReadmeStore -.->|"read token"| ReadmeCognito
+    ReadmeAdmin -.->|"write token"| ReadmeCognito
+    ReadmeApi -.->|"JWT validation"| ReadmeCognito
+    ReadmeProducer -.->|"JWT validation"| ReadmeCognito
+~~~
+
 ## Seguridad
 
 El proyecto usa Amazon Cognito y access tokens JWT.

@@ -1,0 +1,122 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: PC Mania Kinesis streams and KCL lease tables
+
+Resources:
+  ProductStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: pc-mania-product-events
+      RetentionPeriodHours: 24
+      ShardCount: 3
+      StreamModeDetails:
+        StreamMode: PROVISIONED
+
+  OrderStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: pc-mania-order-events
+      RetentionPeriodHours: 24
+      ShardCount: 3
+      StreamModeDetails:
+        StreamMode: PROVISIONED
+
+  DlqStream:
+    Type: AWS::Kinesis::Stream
+    Properties:
+      Name: pc-mania-kinesis-dlq
+      RetentionPeriodHours: 24
+      ShardCount: 1
+      StreamModeDetails:
+        StreamMode: PROVISIONED
+
+  ProductRealtimeLeaseTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pc-mania-kinesis-product-realtime
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: leaseKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: leaseKey
+          KeyType: HASH
+
+  ProductAuditLeaseTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pc-mania-kinesis-product-audit
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: leaseKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: leaseKey
+          KeyType: HASH
+
+  OrderProcessingLeaseTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pc-mania-kinesis-order-processing
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: leaseKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: leaseKey
+          KeyType: HASH
+
+  OrderAuditLeaseTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pc-mania-kinesis-order-audit
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: leaseKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: leaseKey
+          KeyType: HASH
+
+  ProductIteratorAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: pc-mania-product-iterator-age
+      AlarmDescription: Retraso de consumo del stream de productos
+      Namespace: AWS/Kinesis
+      MetricName: GetRecords.IteratorAgeMilliseconds
+      Dimensions:
+        - Name: StreamName
+          Value: pc-mania-product-events
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 3
+      Threshold: 60000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  OrderIteratorAgeAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: pc-mania-order-iterator-age
+      AlarmDescription: Retraso de consumo del stream de órdenes
+      Namespace: AWS/Kinesis
+      MetricName: GetRecords.IteratorAgeMilliseconds
+      Dimensions:
+        - Name: StreamName
+          Value: pc-mania-order-events
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 5
+      DatapointsToAlarm: 3
+      Threshold: 60000
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+Outputs:
+  ProductStreamName:
+    Value: !Ref ProductStream
+  OrderStreamName:
+    Value: !Ref OrderStream
+  DlqStreamName:
+    Value: !Ref DlqStream

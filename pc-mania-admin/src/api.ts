@@ -44,6 +44,45 @@ export interface MessagingTopology {
 
 export type ConsumerStates = Record<string, boolean>;
 
+export interface KinesisStreamStatus {
+  key: string;
+  name: string;
+  streamArn: string | null;
+  status: string;
+  openShardCount: number;
+  configuredShardCount: number;
+  retentionHours: number;
+  iteratorAgeMilliseconds: number | null;
+}
+
+export interface KinesisConsumerStatus {
+  applicationName: string;
+  streamKey: string;
+  streamName: string;
+  leaseTable: string;
+  enabled: boolean;
+  running: boolean;
+  leaseCount: number;
+  assignedShardCount: number;
+  leases: KinesisLeaseStatus[];
+  message: string;
+}
+
+export interface KinesisLeaseStatus {
+  leaseKey: string;
+  leaseOwner: string | null;
+  checkpoint: string | null;
+  checkpointSubSequenceNumber: string | null;
+}
+
+export interface KinesisEventStatus {
+  eventId: string;
+  applicationName: string;
+  status: 'PROCESSED' | 'DUPLICATE' | 'DLQ';
+  sequenceNumber: string;
+  updatedAt: string;
+}
+
 async function authHeaders(options: RequestInit): Promise<HeadersInit> {
   const session = await fetchAuthSession();
   const token = session.tokens?.accessToken?.toString();
@@ -141,4 +180,77 @@ export function controlarConsumidor(consumer: string, action: 'pause' | 'resume'
 
 export function reprocesarDlq(queueKey: string): Promise<{ movedMessages: number }> {
   return messagingJson(`/api/messaging/admin/queues/${queueKey}/dlq/reprocess`, { method: 'POST' });
+}
+
+export function crearTopologiaKinesis(): Promise<KinesisStreamStatus[]> {
+  return messagingJson('/api/kinesis/admin/streams', { method: 'POST' });
+}
+
+export function obtenerStreamsKinesis(): Promise<KinesisStreamStatus[]> {
+  return messagingJson('/api/kinesis/admin/streams/status');
+}
+
+export function obtenerConsumidoresKinesis(): Promise<KinesisConsumerStatus[]> {
+  return messagingJson('/api/kinesis/admin/consumers');
+}
+
+export function actualizarShardsKinesis(streamKey: string, shardCount: number): Promise<KinesisStreamStatus> {
+  return messagingJson(`/api/kinesis/admin/streams/${streamKey}/shards?shardCount=${shardCount}`, { method: 'PUT' });
+}
+
+export function actualizarRetencionKinesis(streamKey: string, retentionHours: number): Promise<KinesisStreamStatus> {
+  return messagingJson(`/api/kinesis/admin/streams/${streamKey}/retention?retentionHours=${retentionHours}`, { method: 'PUT' });
+}
+
+export function eliminarStreamKinesis(streamKey: string): Promise<void> {
+  return messagingJson(`/api/kinesis/admin/streams/${streamKey}`, { method: 'DELETE' });
+}
+
+export function crearAlarmasIteratorAge(): Promise<string[]> {
+  return messagingJson('/api/kinesis/admin/alarms/iterator-age', { method: 'POST' });
+}
+
+export function obtenerEstadoEventoKinesis(eventId: string): Promise<KinesisEventStatus | null> {
+  return messagingJson<KinesisEventStatus | null>(`/api/kinesis/admin/events/status/${eventId}`);
+}
+
+export function obtenerEstadosEventosKinesis(): Promise<KinesisEventStatus[]> {
+  return messagingJson<KinesisEventStatus[]>('/api/kinesis/admin/events/status');
+}
+
+export interface KinesisPublishResponse {
+  eventId: string;
+  sequenceNumber: string | null;
+}
+
+export function publicarEventoKinesis(
+  eventType: 'product.created' | 'product.updated' | 'order.created',
+  forceFailure: boolean,
+  eventIdOverride?: string,
+): Promise<KinesisPublishResponse> {
+  const stream = eventType.startsWith('product.') ? 'product' : 'order';
+  const eventId = eventIdOverride ?? crypto.randomUUID();
+  const isProduct = stream === 'product';
+  return messagingJson<KinesisPublishResponse>('/api/kinesis/events', {
+    method: 'POST',
+    body: JSON.stringify({
+      stream,
+      event: {
+        eventId,
+        correlationId: crypto.randomUUID(),
+        eventType,
+        partitionKey: isProduct ? 'product-demo' : 'order-demo',
+        payload: JSON.stringify({
+          tipo: isProduct ? 'producto' : 'pedido',
+          demo: true,
+          eventType,
+        }),
+        occurredAt: new Date().toISOString(),
+        metadata: {
+          source: 'pc-mania-admin',
+          ...(forceFailure ? { forceFailure: 'true' } : {}),
+        },
+      },
+    }),
+  });
 }

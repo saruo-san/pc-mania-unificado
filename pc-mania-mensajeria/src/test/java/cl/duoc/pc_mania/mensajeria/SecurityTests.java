@@ -43,4 +43,17 @@ class SecurityTests {
                         .with(jwt().authorities(() -> "SCOPE_pcmania-api/read")))
                 .andExpect(status().isForbidden());
     }
+
+    @Test
+    void kinesisSinTokenRespondeNoAutorizado() throws Exception {
+        mockMvc.perform(post("/api/kinesis/events"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void administracionKinesisRequiereScopeAdministrativo() throws Exception {
+        mockMvc.perform(get("/api/kinesis/admin/streams/status")
+                        .with(jwt().authorities(() -> "SCOPE_pcmania-api/read")))
+                .andExpect(status().isForbidden());
+    }
 }

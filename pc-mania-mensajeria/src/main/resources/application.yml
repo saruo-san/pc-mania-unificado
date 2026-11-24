@@ -49,3 +49,33 @@ pc-mania:
         visibility-timeout-seconds: ${SQS_DOCUMENTS_VISIBILITY_TIMEOUT_SECONDS:30}
         max-receive-count: ${SQS_DOCUMENTS_MAX_RECEIVE_COUNT:3}
         filter-policy: '{"eventType":["document.requested"]}'
+  kinesis:
+    region: ${AWS_REGION:us-east-1}
+    enabled: ${KINESIS_ENABLED:false}
+    initial-position: ${KINESIS_INITIAL_POSITION:TRIM_HORIZON}
+    lease-table-prefix: ${KINESIS_LEASE_TABLE_PREFIX:pc-mania-kinesis}
+    retry:
+      max-attempts: ${KINESIS_RETRY_MAX_ATTEMPTS:5}
+      initial-delay-ms: ${KINESIS_RETRY_INITIAL_DELAY_MS:500}
+    streams:
+      product:
+        name: ${KINESIS_PRODUCT_STREAM:pc-mania-product-events}
+        shard-count: ${KINESIS_PRODUCT_SHARDS:3}
+        retention-hours: ${KINESIS_PRODUCT_RETENTION_HOURS:24}
+      order:
+        name: ${KINESIS_ORDER_STREAM:pc-mania-order-events}
+        shard-count: ${KINESIS_ORDER_SHARDS:3}
+        retention-hours: ${KINESIS_ORDER_RETENTION_HOURS:24}
+      dlq:
+        name: ${KINESIS_DLQ_STREAM:pc-mania-kinesis-dlq}
+        shard-count: ${KINESIS_DLQ_SHARDS:1}
+        retention-hours: ${KINESIS_DLQ_RETENTION_HOURS:24}
+    consumer-applications:
+      product-realtime:
+        stream: product
+      product-audit:
+        stream: product
+      order-processing:
+        stream: order
+      order-audit:
+        stream: order

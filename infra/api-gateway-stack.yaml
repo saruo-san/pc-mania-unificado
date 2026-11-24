@@ -1,0 +1,267 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: PC Mania regional API Gateway for the protected product API
+
+Parameters:
+  ApiName:
+    Type: String
+    Default: pc-mania-api
+  BackendOrigin:
+    Type: String
+    Description: Public HTTPS origin of pc-mania-backend, without a trailing slash
+    AllowedPattern: '^https://[^/]+$'
+    ConstraintDescription: Must be a public HTTPS origin without a path or trailing slash
+  CognitoUserPoolArns:
+    Type: CommaDelimitedList
+    Description: Comma-separated Cognito user pool ARNs accepted by the API authorizer
+  AllowedOrigin:
+    Type: String
+    Default: '*'
+    Description: Browser origin allowed for preflight requests; restrict this in production
+  ReadScope:
+    Type: String
+    Default: pcmania-api/read
+  WriteScope:
+    Type: String
+    Default: pcmania-api/write
+  StageName:
+    Type: String
+    Default: prod
+    AllowedPattern: '^[A-Za-z0-9_-]+$'
+  DeploymentVersion:
+    Type: String
+    Default: '1'
+    Description: Increment this value when redeploying changed API methods
+
+Resources:
+  ProductApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Ref ApiName
+      EndpointConfiguration:
+        Types:
+          - REGIONAL
+
+  CognitoAuthorizer:
+    Type: AWS::ApiGateway::Authorizer
+    Properties:
+      Name: pc-mania-cognito
+      RestApiId: !Ref ProductApi
+      Type: COGNITO_USER_POOLS
+      IdentitySource: method.request.header.Authorization
+      ProviderARNs: !Ref CognitoUserPoolArns
+      AuthorizerResultTtlInSeconds: 300
+
+  ApiResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ProductApi
+      ParentId: !GetAtt ProductApi.RootResourceId
+      PathPart: api
+
+  ProductsResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ProductApi
+      ParentId: !Ref ApiResource
+      PathPart: productos
+
+  ProductIdResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ProductApi
+      ParentId: !Ref ProductsResource
+      PathPart: '{proxy+}'
+
+  ListProducts:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResourceId: !Ref ProductsResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      AuthorizationScopes:
+        - !Ref ReadScope
+        - !Ref WriteScope
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: GET
+        Uri: !Sub '${BackendOrigin}/api/productos'
+        PassthroughBehavior: WHEN_NO_MATCH
+
+  CreateProduct:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResourceId: !Ref ProductsResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      AuthorizationScopes:
+        - !Ref WriteScope
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub '${BackendOrigin}/api/productos'
+        PassthroughBehavior: WHEN_NO_MATCH
+
+  GetProduct:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResourceId: !Ref ProductIdResource
+      HttpMethod: GET
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      AuthorizationScopes:
+        - !Ref ReadScope
+        - !Ref WriteScope
+      RequestParameters:
+        method.request.path.proxy: true
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: GET
+        Uri: !Sub '${BackendOrigin}/api/productos/{proxy}'
+        RequestParameters:
+          integration.request.path.proxy: method.request.path.proxy
+        PassthroughBehavior: WHEN_NO_MATCH
+
+  UpdateProduct:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResourceId: !Ref ProductIdResource
+      HttpMethod: PUT
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      AuthorizationScopes:
+        - !Ref WriteScope
+      RequestParameters:
+        method.request.path.proxy: true
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: PUT
+        Uri: !Sub '${BackendOrigin}/api/productos/{proxy}'
+        RequestParameters:
+          integration.request.path.proxy: method.request.path.proxy
+        PassthroughBehavior: WHEN_NO_MATCH
+
+  DeleteProduct:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResourceId: !Ref ProductIdResource
+      HttpMethod: DELETE
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      AuthorizationScopes:
+        - !Ref WriteScope
+      RequestParameters:
+        method.request.path.proxy: true
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: DELETE
+        Uri: !Sub '${BackendOrigin}/api/productos/{proxy}'
+        RequestParameters:
+          integration.request.path.proxy: method.request.path.proxy
+        PassthroughBehavior: WHEN_NO_MATCH
+
+  ProductsOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResourceId: !Ref ProductsResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Authorization,Content-Type'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  ProductIdOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResourceId: !Ref ProductIdResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      RequestParameters:
+        method.request.path.proxy: true
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Authorization,Content-Type'"
+              method.response.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
+  Default4xxResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResponseType: DEFAULT_4XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Authorization,Content-Type'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+
+  Default5xxResponse:
+    Type: AWS::ApiGateway::GatewayResponse
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResponseType: DEFAULT_5XX
+      ResponseParameters:
+        gatewayresponse.header.Access-Control-Allow-Headers: "'Authorization,Content-Type'"
+        gatewayresponse.header.Access-Control-Allow-Methods: "'GET,POST,PUT,DELETE,OPTIONS'"
+        gatewayresponse.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+
+  ProductApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - ListProducts
+      - CreateProduct
+      - GetProduct
+      - UpdateProduct
+      - DeleteProduct
+      - ProductsOptions
+      - ProductIdOptions
+      - Default4xxResponse
+      - Default5xxResponse
+    Properties:
+      RestApiId: !Ref ProductApi
+      Description: !Sub 'PC Mania API deployment ${DeploymentVersion}'
+
+  ProductApiStage:
+    Type: AWS::ApiGateway::Stage
+    Properties:
+      RestApiId: !Ref ProductApi
+      DeploymentId: !Ref ProductApiDeployment
+      StageName: !Ref StageName
+
+Outputs:
+  ApiBaseUrl:
+    Description: Set VITE_API_URL to this URL in the frontends
+    Value: !Sub 'https://${ProductApi}.execute-api.${AWS::Region}.amazonaws.com/${StageName}'
+  RestApiId:
+    Value: !Ref ProductApi

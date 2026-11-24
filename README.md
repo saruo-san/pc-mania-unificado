@@ -14,6 +14,8 @@ pc-mania/
 ├── pc-mania-mensajeria/    SNS, SQS, DLQ, consumidores y administración
 ├── pc-mania-admin/         Panel administrativo de inventario y mensajería
 ├── pc-mania-tienda/        Catálogo para clientes
+├── infra/                  CloudFormation y scripts de despliegue/limpieza
+├── docs/                   Arquitectura y flujo de la EV3
 ├── GUIA_INICIO_SERVICIOS.md
 └── GUIA_PRUEBAS_MENSAJERIA.md
 ```
@@ -109,6 +111,8 @@ DLQ y el dashboard consulta la antigüedad aproximada del mensaje más antiguo.
 GitHub renderiza el siguiente diagrama Mermaid directamente en esta página. La
 vista detallada de componentes está disponible en
 [architecture-diagram.md](./.github/modernize/assessment/engines/facts/architecture-diagram.md).
+La implementación del API Manager y el flujo de la EV3 se explican en
+[docs/EV3-ARQUITECTURA.md](./docs/EV3-ARQUITECTURA.md).
 
 <!-- mermaid-checked: no \n, no em-dash/en-dash, no {} in labels, subgraphs are id["label"], arrows are -->|"label"|, all subgraphs closed by end, ids unique -->
 ~~~mermaid
@@ -117,6 +121,10 @@ flowchart TD
         ReadmeStore["Tienda React port 5173"]
         ReadmeAdmin["Admin React port 5174"]
     end
+    subgraph ReadmeGateway["API Manager"]
+        ReadmeApiGateway["Amazon API Gateway REST API"]
+        ReadmeGatewayAuth["Cognito authorizer and scopes"]
+    end
     subgraph ReadmeProduct["Product API port 8080"]
         ReadmeApi["Spring REST API"]
         ReadmeProductService["Product service"]
@@ -124,11 +132,16 @@ flowchart TD
         ReadmeEvents["Event client"]
     end
     subgraph ReadmeMessaging["Messaging API port 8081"]
-        ReadmeProducer["Event producer"]
+        ReadmeProducer["SNS event producer"]
+        ReadmeKinesisProducer["Kinesis event producer"]
         ReadmeAdminApi["Messaging administration"]
         ReadmeNotifications["Notifications consumer"]
         ReadmeTickets["Tickets consumer"]
         ReadmeDocuments["Documents consumer"]
+        ReadmeProductRealtime["product-realtime KCL"]
+        ReadmeProductAudit["product-audit KCL"]
+        ReadmeOrderProcessing["order-processing KCL"]
+        ReadmeOrderAudit["order-audit KCL"]
     end
     subgraph ReadmeAws["AWS services"]
         ReadmeTopic["SNS pc-mania-events"]
@@ -138,19 +151,28 @@ flowchart TD
         ReadmeNotificationDlq[("DLQ notifications")]
         ReadmeTicketDlq[("DLQ tickets")]
         ReadmeDocumentDlq[("DLQ documents")]
-        ReadmeCloudWatch["CloudWatch alarms"]
+        ReadmeProductStream[("Kinesis product stream 3 shards")]
+        ReadmeOrderStream[("Kinesis order stream 3 shards")]
+        ReadmeKinesisDlq[("Kinesis DLQ stream")]
+        ReadmeLeaseTables[("DynamoDB KCL leases and checkpoints")]
+        ReadmeCloudWatch["CloudWatch alarms and metrics"]
     end
     subgraph ReadmeIdentity["Identity"]
-        ReadmeCognito["Amazon Cognito JWT"]
+        ReadmeCognito["Amazon Cognito access tokens"]
     end
 
-    ReadmeStore -->|"read catalog"| ReadmeApi
-    ReadmeAdmin -->|"CRUD products"| ReadmeApi
-    ReadmeAdmin -->|"operate queues"| ReadmeAdminApi
+    ReadmeStore -->|"product API with VITE_API_URL"| ReadmeApiGateway
+    ReadmeAdmin -->|"product API with VITE_API_URL"| ReadmeApiGateway
+    ReadmeApiGateway -->|"route product API and forward JWT"| ReadmeApi
+    ReadmeApiGateway -.->|"validate user pool and scopes"| ReadmeGatewayAuth
+    ReadmeGatewayAuth -.-> ReadmeCognito
+    ReadmeApi -.->|"validate JWT again"| ReadmeCognito
+    ReadmeAdmin -->|"local messaging administration"| ReadmeAdminApi
     ReadmeApi --> ReadmeProductService
     ReadmeProductService -->|"store product"| ReadmeCatalog
-    ReadmeProductService -->|"publish product event"| ReadmeEvents
-    ReadmeEvents -->|"HTTP event"| ReadmeProducer
+    ReadmeProductService -->|"publish enabled event types"| ReadmeEvents
+    ReadmeEvents -->|"SNS event HTTP request"| ReadmeProducer
+    ReadmeEvents -->|"Kinesis event HTTP request"| ReadmeKinesisProducer
     ReadmeProducer -->|"publish"| ReadmeTopic
     ReadmeTopic -->|"filtered fanout"| ReadmeNotificationQueue
     ReadmeTopic -->|"filtered fanout"| ReadmeTicketQueue
@@ -161,12 +183,29 @@ flowchart TD
     ReadmeNotificationQueue -->|"after 3 failures"| ReadmeNotificationDlq
     ReadmeTicketQueue -->|"after 3 failures"| ReadmeTicketDlq
     ReadmeDocumentQueue -->|"after 3 failures"| ReadmeDocumentDlq
+    ReadmeKinesisProducer -->|"product events"| ReadmeProductStream
+    ReadmeKinesisProducer -->|"order events"| ReadmeOrderStream
+    ReadmeProductStream --> ReadmeProductRealtime
+    ReadmeProductStream --> ReadmeProductAudit
+    ReadmeOrderStream --> ReadmeOrderProcessing
+    ReadmeOrderStream --> ReadmeOrderAudit
+    ReadmeProductRealtime --> ReadmeLeaseTables
+    ReadmeProductAudit --> ReadmeLeaseTables
+    ReadmeOrderProcessing --> ReadmeLeaseTables
+    ReadmeOrderAudit --> ReadmeLeaseTables
+    ReadmeProductRealtime -->|"unrecoverable record"| ReadmeKinesisDlq
+    ReadmeOrderProcessing -->|"unrecoverable record"| ReadmeKinesisDlq
     ReadmeAdminApi -->|"metrics and alarms"| ReadmeCloudWatch
-    ReadmeStore -.->|"read token"| ReadmeCognito
-    ReadmeAdmin -.->|"write token"| ReadmeCognito
-    ReadmeApi -.->|"JWT validation"| ReadmeCognito
+    ReadmeKinesisProducer -->|"iterator age"| ReadmeCloudWatch
+    ReadmeStore -.->|"sign in"| ReadmeCognito
+    ReadmeAdmin -.->|"sign in"| ReadmeCognito
     ReadmeProducer -.->|"JWT validation"| ReadmeCognito
+    ReadmeKinesisProducer -.->|"JWT validation"| ReadmeCognito
 ~~~
+
+El panel también conserva llamadas directas al microservicio de mensajería
+para herramientas administrativas locales. Para demostrar el flujo EV3 a través
+del API Manager, crea o actualiza un producto con `KINESIS_EVENTS_ENABLED=true`.
 
 ## Seguridad
 
@@ -400,17 +439,136 @@ protegidos bajo:
 /api/messaging/admin/**
 ```
 
+## API Manager (AWS API Gateway)
+
+La pauta EV3 exige que el frontend consuma el backend a través de un API
+Manager. En este proyecto corresponde a **Amazon API Gateway**: recibe las
+llamadas del navegador, valida los access tokens de Cognito y reenvía las rutas
+`/api/productos` al backend, que vuelve a validar el JWT y publica los eventos
+en mensajería.
+
+La definición repetible está en
+[infra/api-gateway-stack.yaml](./infra/api-gateway-stack.yaml). Acepta uno o
+varios ARN de User Pools de Cognito para permitir el pool de tienda y el de
+administración, y requiere los scopes `pcmania-api/read` y
+`pcmania-api/write`. El origen del backend debe ser público y HTTPS; API
+Gateway no puede enrutar a `localhost`. Para una prueba temporal, ngrok puede
+publicar el backend, pero hay que tunelizar el puerto `8080`; publicar solo el
+frontend no crea un origen para Gateway. El repositorio no inicia ni configura
+ngrok automáticamente. El script
+[infra/deploy-api-gateway.ps1](./infra/deploy-api-gateway.ps1) muestra la URL
+resultante, que se configura como `VITE_API_URL` en ambos frontends. Las
+llamadas locales pueden seguir apuntando directamente a `localhost:8080`; en
+un frontend público, `VITE_API_URL` no debe ser `localhost`. Las operaciones
+administrativas todavía usan `VITE_MESSAGING_API_URL` y no pasan por este
+Gateway, por lo que requieren conectividad aparte con el servicio de mensajería.
+
+El API Gateway expone la API de productos. El backend debe tener configuradas
+`MESSAGING_SERVICE_URL` y `KINESIS_SERVICE_URL` con una dirección alcanzable
+para publicar eventos; el Gateway no despliega ni reemplaza ese microservicio.
+Las llamadas administrativas del panel siguen usando `VITE_MESSAGING_API_URL`.
+
+Configura `CORS_ALLOWED_ORIGINS` en el backend con los orígenes reales de los
+frontends para que las respuestas proxied permitan el acceso desde el navegador.
+La limpieza del API Gateway se realiza mediante
+[infra/cleanup-api-gateway.ps1](./infra/cleanup-api-gateway.ps1).
+
+## Streaming con Amazon Kinesis
+
+El microservicio de mensajería incorpora Amazon Kinesis como una capa adicional
+para streaming y reprocesamiento; no reemplaza SNS/SQS.
+
+### Streams
+
+| Stream | Shards | Retención |
+|---|---:|---:|
+| `pc-mania-product-events` | 3 | 24 horas |
+| `pc-mania-order-events` | 3 | 24 horas |
+| `pc-mania-kinesis-dlq` | 1 | 24 horas |
+
+La topología repetible está declarada en
+[infra/kinesis-stack.yaml](./infra/kinesis-stack.yaml). Se puede desplegar con:
+
+```powershell
+.\infra\deploy-kinesis.ps1 -Region us-east-1
+```
+
+### Eventos y partición
+
+El productor recibe JSON tipado y serializa `KinesisEvent`. La clave de partición
+es `partitionKey`; para productos usa `product-<id>` y para pedidos usa
+`order-<id>`. Esto mantiene juntos eventos del mismo recurso y distribuye
+particionadamente los registros entre tres shards.
+
+### Consumidores
+
+Se configuran KCL Scheduler por aplicación:
+
+- `product-realtime` y `product-audit` sobre el stream de productos.
+- `order-processing` y `order-audit` sobre el stream de órdenes.
+
+Cada aplicación utiliza una tabla DynamoDB propia para leases y checkpoints.
+Varias instancias de la misma aplicación pueden compartir esa tabla y repartir
+dinámicamente los shards. El checkpoint se guarda después del procesamiento
+del lote y al finalizar o detener un shard. El panel consulta la tabla para
+mostrar los leases, workers asignados y checkpoints; el estado del hilo KCL se
+presenta por separado del estado de DynamoDB.
+
+### Resiliencia
+
+- Validación estructural y de contenido.
+- Idempotencia en memoria por `eventId` y secuencia dentro de cada processor
+  KCL; no es distribuida ni sobrevive al reinicio.
+- Reintentos configurables con espera creciente para fallos transitorios y
+  errores de publicación al DLQ.
+- Eventos malformados y fallidos enviados al `pc-mania-kinesis-dlq`; si no se
+  puede persistir en DLQ, el lote no avanza el checkpoint.
+- Log estructurado con application, eventId, correlationId, intento, secuencia
+  y causa.
+- Un evento defectuoso se deriva al DLQ y no bloquea registros posteriores si
+  el envío al DLQ se completa.
+
+### API local
+
+```text
+POST /api/kinesis/events
+GET  /api/kinesis/admin/streams/status
+POST /api/kinesis/admin/streams
+PUT  /api/kinesis/admin/streams/{key}/shards
+PUT  /api/kinesis/admin/streams/{key}/retention
+DELETE /api/kinesis/admin/streams/{key}
+GET  /api/kinesis/admin/consumers
+POST /api/kinesis/admin/alarms/iterator-age
+```
+
+Kinesis permanece deshabilitado hasta configurar:
+
+```powershell
+$env:KINESIS_ENABLED="true"
+$env:KINESIS_EVENTS_ENABLED="true"
+$env:AWS_REGION="us-east-1"
+```
+
+Las credenciales deben obtenerse mediante variables temporales, perfil AWS o
+rol de ejecución. No deben guardarse en el repositorio.
+
+Para finalizar una sesión y detener inmediatamente el cobro por Kinesis:
+
+```powershell
+.\infra\cleanup-kinesis.ps1 -Region us-east-1
+```
+
 ## Decisiones de alcance
 
 - No se agrega una base de datos; el inventario permanece en memoria.
 - La tienda mantiene únicamente permisos de lectura.
 - El administrador usa `pcmania-api/write`, sin crear un scope adicional.
-- La idempotencia actual es por instancia; una versión distribuida requeriría
-  almacenamiento compartido.
+- La idempotencia actual vive en memoria dentro de cada processor KCL; una
+  versión distribuida y durable requeriría almacenamiento compartido.
 - El patrón Outbox queda como mejora futura para evitar que una operación local
   confirmada quede sin evento si mensajería está temporalmente caída.
-- API Gateway/API Manager no forma parte de la ejecución local actual; los
-  frontends llaman directamente a los servicios locales.
+- El API Gateway es una capa de entrada opcional para la ejecución local; para
+  la demo cloud los frontends deben configurarse con la URL del stack.
 
 ## Solución de problemas
 

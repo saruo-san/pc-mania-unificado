@@ -1,17 +1,31 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { fetchAuthSession, signInWithRedirect, signOut } from 'aws-amplify/auth';
 import {
   actualizarProducto,
   agregarProducto,
   controlarConsumidor,
   crearAlarmasDlq,
+  crearTopologiaKinesis,
+  crearAlarmasIteratorAge,
   eliminarProducto,
+  eliminarStreamKinesis,
   obtenerCatalogo,
   obtenerConsumidores,
+  obtenerConsumidoresKinesis,
   obtenerPoliticaRetencion,
+  obtenerStreamsKinesis,
   obtenerTopologia,
   reprocesarDlq,
+  actualizarRetencionKinesis,
+  actualizarShardsKinesis,
+  publicarEventoKinesis,
+  obtenerEstadoEventoKinesis,
+  obtenerEstadosEventosKinesis,
   type ConsumerStates,
+  type KinesisConsumerStatus,
+  type KinesisStreamStatus,
+  type KinesisEventStatus,
   type MessagingTopology,
   type NuevoProducto,
   type Producto,
@@ -128,6 +142,18 @@ function App() {
   const [politicaRetencion, setPoliticaRetencion] = useState<Record<string, string>>({});
   const [cargandoMensajeria, setCargandoMensajeria] = useState(false);
   const [mensajeMensajeria, setMensajeMensajeria] = useState<string | null>(null);
+  const [streamsKinesis, setStreamsKinesis] = useState<KinesisStreamStatus[]>([]);
+  const [consumidoresKinesis, setConsumidoresKinesis] = useState<KinesisConsumerStatus[]>([]);
+  const [tipoEventoKinesis, setTipoEventoKinesis] = useState<'product.created' | 'product.updated' | 'order.created'>('product.created');
+  const [falloKinesis, setFalloKinesis] = useState(false);
+  const [publicandoKinesis, setPublicandoKinesis] = useState(false);
+  const [resultadoKinesis, setResultadoKinesis] = useState<string | null>(null);
+  const [errorKinesis, setErrorKinesis] = useState<string | null>(null);
+  const [cerrandoResultadoKinesis, setCerrandoResultadoKinesis] = useState(false);
+  const [ultimoEventIdKinesis, setUltimoEventIdKinesis] = useState<string | null>(null);
+  const [repetirEventIdKinesis, setRepetirEventIdKinesis] = useState(false);
+  const [estadosEventosKinesis, setEstadosEventosKinesis] = useState<KinesisEventStatus[]>([]);
+  const [tipoResultadoKinesis, setTipoResultadoKinesis] = useState<'processed' | 'duplicate' | 'dlq' | 'pending' | null>(null);
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -143,6 +169,26 @@ function App() {
 
     return () => window.clearTimeout(timer);
   }, [settingsState]);
+
+  useEffect(() => {
+    if (!resultadoKinesis && !errorKinesis) return;
+
+    setCerrandoResultadoKinesis(false);
+    const closingTimer = window.setTimeout(() => {
+      setCerrandoResultadoKinesis(true);
+    }, 4700);
+    const removeTimer = window.setTimeout(() => {
+      setResultadoKinesis(null);
+      setErrorKinesis(null);
+      setTipoResultadoKinesis(null);
+      setCerrandoResultadoKinesis(false);
+    }, 5000);
+
+    return () => {
+      window.clearTimeout(closingTimer);
+      window.clearTimeout(removeTimer);
+    };
+  }, [resultadoKinesis, errorKinesis]);
 
   useEffect(() => {
     if (!isConfigOk) return;
@@ -176,6 +222,19 @@ function App() {
       setMensajeria(topologia);
       setConsumidores(estados);
       setPoliticaRetencion(politica);
+      try {
+        const [streams, consumers, eventStates] = await Promise.all([
+          obtenerStreamsKinesis(),
+          obtenerConsumidoresKinesis(),
+          obtenerEstadosEventosKinesis(),
+        ]);
+        setStreamsKinesis(streams);
+        setConsumidoresKinesis(consumers);
+        setEstadosEventosKinesis(eventStates);
+      } catch {
+        setStreamsKinesis([]);
+        setConsumidoresKinesis([]);
+      }
     } catch (err) {
       setMensajeMensajeria(err instanceof Error ? err.message : 'No se pudo cargar la mensajería');
     } finally {
@@ -190,6 +249,60 @@ function App() {
       await cargarMensajeria();
     } catch (err) {
       setMensajeMensajeria(err instanceof Error ? err.message : 'No se pudo completar la operación');
+    }
+  }
+
+  async function publicarEventoDemo() {
+    setPublicandoKinesis(true);
+    setResultadoKinesis(null);
+    setErrorKinesis(null);
+    setTipoResultadoKinesis(null);
+    try {
+      const eventIdOverride = repetirEventIdKinesis ? ultimoEventIdKinesis ?? undefined : undefined;
+      const result = await publicarEventoKinesis(tipoEventoKinesis, falloKinesis, eventIdOverride);
+      setUltimoEventIdKinesis(result.eventId);
+
+      let consumerStatus: KinesisEventStatus | null = null;
+      for (let attempt = 0; attempt < 10 && !consumerStatus; attempt++) {
+        await new Promise((resolve) => window.setTimeout(resolve, 400));
+        consumerStatus = await obtenerEstadoEventoKinesis(result.eventId);
+      }
+      if (consumerStatus) {
+        setEstadosEventosKinesis((previous) => [
+          consumerStatus!,
+          ...previous.filter((item) =>
+            !(item.eventId === consumerStatus!.eventId
+              && item.applicationName === consumerStatus!.applicationName)),
+        ].slice(0, 20));
+        if (consumerStatus.status === 'DUPLICATE') {
+          setTipoResultadoKinesis('duplicate');
+          setResultadoKinesis(
+            `DUPLICATE - Duplicado detectado · eventId ${result.eventId} · consumidor ${consumerStatus.applicationName}`,
+          );
+        } else if (consumerStatus.status === 'DLQ') {
+          setTipoResultadoKinesis('dlq');
+          setResultadoKinesis(
+            `DLQ - Evento enviado al DLQ · eventId ${result.eventId} · consumidor ${consumerStatus.applicationName}`,
+          );
+        } else if (repetirEventIdKinesis) {
+          setTipoResultadoKinesis('pending');
+          setResultadoKinesis(
+            `DUPLICATE PENDING - Aún no se confirmó el duplicado · eventId ${result.eventId}`,
+          );
+        } else {
+          setTipoResultadoKinesis('processed');
+          setResultadoKinesis(
+            `PROCESSED - Evento procesado correctamente · eventId ${result.eventId}`,
+          );
+        }
+      }
+
+      const streams = await obtenerStreamsKinesis();
+      setStreamsKinesis(streams);
+    } catch (err) {
+      setErrorKinesis(err instanceof Error ? err.message : 'No se pudo publicar el evento Kinesis');
+    } finally {
+      setPublicandoKinesis(false);
     }
   }
 
@@ -315,6 +428,7 @@ function App() {
   const productosVisibles = catalogoFiltrado.slice((paginaActual - 1) * productosPorPagina, paginaActual * productosPorPagina);
 
   return (
+    <>
     <div className="app-shell">
       <MatrixBackground />
       <div className="app">
@@ -462,6 +576,189 @@ function App() {
             <section className="inventario-section">
               <div className="section-heading">
                 <div>
+                  <p className="eyebrow">AWS / KINESIS</p>
+                  <h2>Streaming en tiempo real</h2>
+                </div>
+                <button type="button" className="refresh-button" disabled={cargandoMensajeria} onClick={() => void cargarMensajeria()}>
+                  Actualizar Kinesis
+                </button>
+              </div>
+
+              <div className="kinesis-summary">
+                <div className="kinesis-stat">
+                  <span>Streams</span>
+                  <strong>{streamsKinesis.length}</strong>
+                  <small>negocio y DLQ</small>
+                </div>
+                <div className="kinesis-stat">
+                  <span>Shards activos</span>
+                  <strong>{streamsKinesis.reduce((total, stream) => total + stream.openShardCount, 0)}</strong>
+                  <small>distribución paralela</small>
+                </div>
+                <div className="kinesis-stat">
+                  <span>Consumer groups</span>
+                  <strong>{consumidoresKinesis.length}</strong>
+                  <small>aplicaciones independientes</small>
+                </div>
+                <div className="kinesis-stat kinesis-stat-accent">
+                  <span>Estado</span>
+                  <strong>{streamsKinesis.some((stream) => stream.status === 'ACTIVE') ? 'Operativo' : 'Inactivo'}</strong>
+                  <small>{streamsKinesis.length === 0 ? 'streams no creados' : 'topología conectada'}</small>
+                </div>
+              </div>
+
+              <div className="kinesis-demo-panel">
+                <div>
+                  <p className="eyebrow">PRUEBA VISUAL</p>
+                  <h3>Publicar evento</h3>
+                  <small>El evento viajará al stream y aparecerá en los logs de ambos consumidores.</small>
+                </div>
+                <div className="kinesis-demo-controls">
+                  <select
+                    value={tipoEventoKinesis}
+                    onChange={(event) => setTipoEventoKinesis(event.target.value as 'product.created' | 'product.updated' | 'order.created')}
+                    aria-label="Tipo de evento Kinesis"
+                  >
+                    <option value="product.created">Producto creado</option>
+                    <option value="product.updated">Producto actualizado</option>
+                    <option value="order.created">Pedido creado</option>
+                  </select>
+                  <label className="kinesis-failure-toggle">
+                    <input
+                      type="checkbox"
+                      checked={falloKinesis}
+                      onChange={(event) => setFalloKinesis(event.target.checked)}
+                    />
+                    <span>Simular fallo</span>
+                  </label>
+                  <label
+                    className={`kinesis-failure-toggle ${!ultimoEventIdKinesis ? 'disabled' : ''}`}
+                    title={!ultimoEventIdKinesis ? 'Publica primero un evento normal' : 'Reutiliza el último eventId'}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={repetirEventIdKinesis}
+                      disabled={!ultimoEventIdKinesis}
+                      onChange={(event) => setRepetirEventIdKinesis(event.target.checked)}
+                    />
+                    <span>Repetir eventId</span>
+                  </label>
+                  <button type="button" className="kinesis-publish-button" disabled={publicandoKinesis} onClick={() => void publicarEventoDemo()}>
+                    {publicandoKinesis ? 'Publicando...' : 'Publicar en Kinesis'}
+                  </button>
+                </div>
+              </div>
+              <div className="kinesis-actions">
+                <button type="button" className="ghost-button small" onClick={() => void ejecutarAccionMensajeria(
+                  () => crearTopologiaKinesis(),
+                  'Streams de Kinesis creados o ya existentes',
+                )}>
+                  Crear streams
+                </button>
+                <button type="button" className="ghost-button small" onClick={() => void ejecutarAccionMensajeria(
+                  () => crearAlarmasIteratorAge(),
+                  'Alarmas IteratorAge configuradas',
+                )}>
+                  Crear alarmas
+                </button>
+              </div>
+
+              {streamsKinesis.length > 0 ? (
+                <div className="kinesis-stream-grid">
+                  {streamsKinesis.map((stream) => (
+                    <article className="kinesis-stream-card" key={stream.key}>
+                      <div className="kinesis-stream-header">
+                        <div>
+                          <span className={`kinesis-status-dot ${stream.status === 'ACTIVE' ? 'active' : ''}`} />
+                          <strong>{stream.name}</strong>
+                        </div>
+                        <span className="kinesis-badge">{stream.status}</span>
+                      </div>
+                      <div className="kinesis-shards">
+                        {Array.from({ length: stream.openShardCount }, (_, index) => (
+                          <span className="kinesis-shard" key={index}>S{index + 1}</span>
+                        ))}
+                      </div>
+                      <dl className="kinesis-details">
+                        <div><dt>Shards</dt><dd>{stream.openShardCount}/{stream.configuredShardCount}</dd></div>
+                        <div><dt>Retención</dt><dd>{stream.retentionHours} h</dd></div>
+                        <div>
+                          <dt>Iterator age</dt>
+                          <dd>{stream.iteratorAgeMilliseconds == null ? 'Sin datos' : `${Math.round(stream.iteratorAgeMilliseconds)} ms`}</dd>
+                        </div>
+                      </dl>
+                      <div className="kinesis-card-actions">
+                        <button type="button" onClick={() => void ejecutarAccionMensajeria(
+                          () => actualizarShardsKinesis(stream.key, stream.configuredShardCount === 3 ? 6 : 3),
+                          `${stream.name}: shards actualizados`,
+                        )}>
+                          Alternar shards
+                        </button>
+                        <button type="button" onClick={() => void ejecutarAccionMensajeria(
+                          () => actualizarRetencionKinesis(stream.key, stream.retentionHours >= 168 ? 24 : 168),
+                          `${stream.name}: retención actualizada`,
+                        )}>
+                          Alternar retención
+                        </button>
+                        <button type="button" className="kinesis-delete" onClick={() => void ejecutarAccionMensajeria(
+                          () => eliminarStreamKinesis(stream.key),
+                          `${stream.name}: solicitud de eliminación enviada`,
+                        )}>
+                          Eliminar
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              ) : (
+                <p className="mensaje">No hay streams consultables. Kinesis puede estar deshabilitado o los streams todavía no existen.</p>
+              )}
+              {consumidoresKinesis.length > 0 && (
+                <div className="kinesis-consumer-grid">
+                  {consumidoresKinesis.map((consumer) => (
+                    <article className="kinesis-consumer-card" key={consumer.applicationName}>
+                      <div className="kinesis-consumer-heading">
+                        <span className="kinesis-consumer-icon">KCL</span>
+                        <div>
+                          <strong>{consumer.applicationName}</strong>
+                          <small>{consumer.streamName}</small>
+                        </div>
+                      </div>
+                      <small className="kinesis-table">
+                        DynamoDB: {consumer.leaseTable}
+                      </small>
+                      <div className="kinesis-consumer-state">
+                        <span className={consumer.running ? 'running' : ''}>
+                          {consumer.running ? 'Proceso activo' : 'Detenido'}
+                        </span>
+                        <small>
+                          {consumer.message}
+                        </small>
+                      </div>
+                      <p className="kinesis-lease-summary">
+                        {consumer.leaseCount} leases · {consumer.assignedShardCount} shards asignados
+                      </p>
+                      {consumer.leases.length > 0 && (
+                        <ul className="kinesis-lease-list">
+                          {consumer.leases.map((lease) => (
+                            <li key={lease.leaseKey}>
+                              <strong>{lease.leaseKey}</strong>
+                              <span>Checkpoint: {lease.checkpoint ?? 'sin checkpoint'}</span>
+                              <small>
+                                {lease.leaseOwner ? `Worker ${lease.leaseOwner.slice(0, 12)}` : 'Sin worker asignado'}
+                              </small>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+            <section className="inventario-section">
+              <div className="section-heading">
+                <div>
                   <p className="eyebrow">INVENTARIO ACTUAL</p>
                   <h2>Productos registrados</h2>
                 </div>
@@ -542,6 +839,43 @@ function App() {
         )}
       </div>
     </div>
+    {createPortal(
+      <>
+        {resultadoKinesis && (
+          <div className={`kinesis-result ${tipoResultadoKinesis ?? 'processed'}${cerrandoResultadoKinesis ? ' closing' : ''}`} role="status">
+            <span>{falloKinesis ? 'Fallo controlado enviado al DLQ' : 'Evento publicado correctamente'}</span>
+            <strong>{resultadoKinesis}</strong>
+          </div>
+        )}
+        {errorKinesis && (
+          <div className={`kinesis-result error${cerrandoResultadoKinesis ? ' closing' : ''}`} role="alert">
+            <span>Error de publicación</span>
+            <strong>{errorKinesis}</strong>
+          </div>
+        )}
+        {estadosEventosKinesis.length > 0 && (
+          <aside className="kinesis-event-statuses" aria-label="Estado de eventos Kinesis">
+            <div className="kinesis-event-status-heading">
+              <p className="eyebrow">ESTADO DE EVENTOS</p>
+              <button type="button" className="ghost-button small" onClick={() => void cargarMensajeria()}>
+                Actualizar
+              </button>
+            </div>
+            <div className="kinesis-event-status-grid">
+              {estadosEventosKinesis.slice(0, 6).map((item) => (
+                <article className={`kinesis-event-status ${item.status.toLowerCase()}`} key={`${item.eventId}:${item.applicationName}`}>
+                  <span className="kinesis-event-status-label">{item.status}</span>
+                  <strong>{item.eventId}</strong>
+                  <small>{item.applicationName} · {item.sequenceNumber}</small>
+                </article>
+              ))}
+            </div>
+          </aside>
+        )}
+      </>,
+      document.body,
+    )}
+    </>
   );
 }
 

@@ -56,7 +56,9 @@ public class SecurityConfig {
                         .requestMatchers("/health").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/messaging/events")
                         .hasAuthority("SCOPE_" + writeScope)
-                        .requestMatchers("/api/messaging/admin/**")
+                        .requestMatchers(HttpMethod.POST, "/api/kinesis/events")
+                        .hasAuthority("SCOPE_" + writeScope)
+                        .requestMatchers("/api/messaging/admin/**", "/api/kinesis/admin/**")
                         .hasAuthority("SCOPE_" + adminScope)
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2

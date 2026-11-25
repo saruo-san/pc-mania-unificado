@@ -3,6 +3,54 @@
 Esta guía inicia los cuatro módulos locales sin guardar ni mostrar credenciales
 en el repositorio. Los comandos están escritos para PowerShell en Windows.
 
+## Inicio automático (recomendado)
+
+Desde la raíz del repositorio, primero valida la configuración sin iniciar
+procesos:
+
+```powershell
+.\start-demo.ps1 -CheckOnly
+```
+
+Para iniciar mensajería, backend, panel y tienda en ventanas separadas:
+
+```powershell
+.\start-demo.ps1
+```
+
+Por defecto el launcher no activa consumidores ni publicaciones en AWS. Para
+incluir los flujos cloud, AWS debe tener un perfil o credenciales temporales
+vigentes en la terminal. Si el stack Kinesis no existe, `-DeployKinesis` lo
+crea antes de iniciar los servicios locales:
+
+```powershell
+.\start-demo.ps1 -EnableSnsSqs
+.\start-demo.ps1 -EnableKinesis
+.\start-demo.ps1 -EnableSnsSqs -EnableKinesis -DeployKinesis
+```
+
+`-EnableKinesis` verifica que los tres streams estén activos. Añade
+`-DeployKinesis` para aplicar el stack CloudFormation antes de verificar los
+streams y arrancar la demo. Esto crea los streams, tablas de leases y alarmas,
+y puede generar costos. El despliegue necesita permisos de CloudFormation,
+Kinesis, DynamoDB y CloudWatch.
+SNS/SQS deben estar provisionados previamente. No copies credenciales al script,
+a un `.env` ni a este documento; usa un perfil AWS o variables temporales en la
+misma terminal. El launcher las hereda sin imprimirlas ni guardarlas. Nunca se
+debe enviar `credenciales.md` al repositorio.
+
+API Gateway no forma parte del arranque local: requiere un backend accesible
+desde AWS mediante HTTPS, además de los ARN de Cognito. Consulta
+`docs/EV3-ARQUITECTURA.md` para desplegarlo cuando exista ese origen público.
+
+El script espera a que mensajería y backend respondan en `/health`, y evita
+iniciar una segunda instancia si alguno de los puertos requeridos ya está en
+uso. Las ventanas individuales permanecen abiertas; detén cada proceso con
+`Ctrl+C`. Si el preflight indica configuración incompleta, completa los `.env`
+locales usando los `.env.example` de cada módulo. La tienda incluye su propio
+`.env.example`. Los puertos se asignan por ventana: mensajería usa `8081` y
+backend `8080`.
+
 ## 1. Requisitos
 
 ### 1.1 Programas que deben instalarse

@@ -11,8 +11,10 @@ La infraestructura repetible de este API está en
 API regional con:
 
 - Un autorizador Cognito User Pools que acepta uno o varios User Pool ARN.
-- Validación de los scopes `pcmania-api/read` y `pcmania-api/write`.
-- Rutas de lectura y escritura para `/api/productos` y `/api/productos/{id}`.
+- Validación de los scopes `pcmania-api/read`, `pcmania-api/write` y
+  `pcmania-api/order` (el último se debe habilitar en el App Client de la tienda).
+- Rutas de lectura y escritura para `/api/productos`, `/api/productos/{id}` y
+  `POST /api/ordenes`.
 - Integración HTTP proxy hacia el backend Spring Boot y respuestas CORS para
   preflight y errores.
 
@@ -33,7 +35,7 @@ sequenceDiagram
     participant PanelAPI as Messaging admin API
     participant Kinesis as Kinesis Data Streams
     participant Consumidor as KCL consumer
-    participant Dynamo as DynamoDB leases
+    participant Dynamo as DynamoDB
 
     Usuario->>Frontend: Inicia sesión
     Frontend->>Cognito: Autenticación
@@ -50,6 +52,16 @@ sequenceDiagram
     Consumidor->>Dynamo: Guarda checkpoint KCL
     Frontend->>PanelAPI: Consulta estados de eventos y consumers
     PanelAPI-->>Frontend: Estado, sequence number y leases
+
+    Usuario->>Frontend: Confirma carrito
+    Frontend->>Gateway: POST /api/ordenes con Bearer token
+    Gateway->>Backend: Reenvía la solicitud autenticada
+    Backend->>Backend: Valida stock y calcula el total
+    Backend->>Dynamo: Persiste la orden
+    Backend->>Mensajeria: Publica order.created con JWT y firma HMAC
+    Mensajeria->>Mensajeria: Verifica firma y consistencia del evento
+    Mensajeria->>Kinesis: PutRecords en stream de órdenes
+    Backend-->>Frontend: Orden creada y total
 ```
 
 Si un evento es inválido o irrecuperable, el consumidor lo publica en el stream
@@ -62,6 +74,11 @@ Cuando está habilitada la publicación SNS, el mismo backend envía el evento a
 microservicio de mensajería. SNS realiza fanout hacia las colas filtradas; los
 consumidores confirman el mensaje con `DeleteMessage`, o SQS lo deriva a su DLQ
 según la Redrive Policy. SNS/SQS continúa funcionando junto a Kinesis.
+
+Los endpoints internos de publicación de órdenes validan una firma HMAC
+generada por el backend. `ORDER_EVENT_SHARED_SECRET` debe coincidir entre
+backend y mensajería y nunca guardarse en el repositorio. El launcher crea
+una clave temporal compartida cuando no está configurada.
 
 ## Despliegue del API Gateway
 
@@ -86,12 +103,25 @@ frontend y el del backend son URL distintas. La URL temporal debe seguir activa
 durante la demo y, si cambia, hay que actualizar el stack y las variables del
 frontend/backend.
 
+El API Gateway agrega `ngrok-skip-browser-warning: true` a sus llamadas proxy
+para evitar que el aviso del plan gratuito de ngrok sustituya las respuestas
+reales del backend.
+
 En un frontend público, `VITE_API_URL` no puede ser `localhost`: el navegador del
 visitante interpretaría esa dirección como su propio equipo. El panel
 administrativo también llama directamente al microservicio de mensajería con
 `VITE_MESSAGING_API_URL`; esas operaciones no están detrás del API Gateway y
 requieren una ruta accesible aparte. No expongas ese servicio públicamente sin
 mantener su autenticación y controles de acceso.
+
+Para consumir API Gateway desde la tienda local, inicia el launcher con la URL
+base que entrega CloudFormation. El túnel ngrok debe seguir exponiendo el
+backend en `localhost:8080` mientras Gateway lo utiliza como `BackendOrigin`:
+
+```powershell
+.\start-demo.ps1 -EnableSnsSqs -EnableKinesis `
+  -ApiBaseUrl "https://<api-id>.execute-api.us-east-1.amazonaws.com/prod"
+```
 
 Con el perfil AWS local previamente configurado, el despliegue puede iniciarse
 desde la raíz del repositorio:
@@ -122,10 +152,13 @@ Para borrar únicamente el stack de API Gateway:
 ```
 
 El panel conserva `VITE_MESSAGING_API_URL` para operaciones administrativas
-directas al microservicio de mensajería. El flujo EV3 que debe demostrarse por
-API Gateway es la creación o actualización de un producto: el frontend llama al
-Gateway y el backend publica el evento. El panel local de publicación sintética
-de eventos Kinesis no representa ese flujo de producto.
+directas al microservicio de mensajería. Para demostrar órdenes por API Gateway,
+la tienda envía `POST /api/ordenes`; el backend comprueba y descuenta stock en
+memoria, calcula el total, guarda una copia de la orden en DynamoDB si se inicia
+con `ORDERS_PERSISTENCE=dynamodb`, y publica `order.created` en el stream de
+órdenes.
+La publicación desde el panel de estado Kinesis es solo un simulador, no una
+orden real.
 
 En un despliegue cloud, `MESSAGING_SERVICE_URL` y `KINESIS_SERVICE_URL` del
 backend deben apuntar a la dirección de mensajería accesible desde el backend.
@@ -133,8 +166,10 @@ El template de API Gateway no crea ni expone ese servicio.
 
 ## Alcance pendiente y preparación de la demo
 
-- La ejecución local mantiene el inventario en memoria; no hay una base de
-  datos cloud configurada.
+- El inventario sigue en memoria. Las órdenes pueden persistirse en la tabla
+  DynamoDB `pc-mania-orders` activando `ORDERS_PERSISTENCE=dynamodb`; al usar
+  `-EnableCloudOrders`, el launcher verifica que la tabla esté activa. El
+  stack de Kinesis también crea esta tabla y su limpieza la elimina.
 - El stack de API Gateway espera un backend ya desplegado y accesible por HTTPS;
   no crea EC2, balanceador, certificado TLS ni red.
 - No se ha desplegado ningún recurso AWS desde este cambio. Primero hay que

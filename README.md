@@ -213,7 +213,7 @@ El proyecto usa Amazon Cognito y access tokens JWT.
 
 | Aplicación o componente | Scope |
 |---|---|
-| Tienda | `pcmania-api/read` |
+| Tienda | `pcmania-api/read`, `pcmania-api/order` |
 | Panel admin | `pcmania-api/write` |
 | Productor y administración de mensajería | `pcmania-api/write` |
 
@@ -221,7 +221,9 @@ El endpoint de salud es público. Las operaciones de escritura y administración
 requieren autenticación y validación de issuer, firma, expiración, `token_use`,
 `client_id` y scope.
 
-No se agrega un scope `pcmania-api/admin` ni una base de datos en esta versión.
+No se agrega un scope `pcmania-api/admin`. El App Client de la tienda debe tener
+habilitado `pcmania-api/order` para que los clientes puedan crear órdenes sin
+recibir permisos de administración.
 El inventario se mantiene en memoria para conservar el alcance acordado.
 
 ## Configuración local
@@ -444,14 +446,16 @@ protegidos bajo:
 La pauta EV3 exige que el frontend consuma el backend a través de un API
 Manager. En este proyecto corresponde a **Amazon API Gateway**: recibe las
 llamadas del navegador, valida los access tokens de Cognito y reenvía las rutas
-`/api/productos` al backend, que vuelve a validar el JWT y publica los eventos
-en mensajería.
+`/api/productos` y `POST /api/ordenes` al backend, que vuelve a validar el JWT y
+publica los eventos de producto/orden en mensajería.
 
 La definición repetible está en
 [infra/api-gateway-stack.yaml](./infra/api-gateway-stack.yaml). Acepta uno o
 varios ARN de User Pools de Cognito para permitir el pool de tienda y el de
-administración, y requiere los scopes `pcmania-api/read` y
-`pcmania-api/write`. El origen del backend debe ser público y HTTPS; API
+administración, y requiere los scopes `pcmania-api/read`, `pcmania-api/write`
+y `pcmania-api/order`. Configura `pcmania-api/order` en el App Client de la
+tienda y usa `-OrderScope` si el nombre difiere. El origen del backend debe ser
+público y HTTPS; API
 Gateway no puede enrutar a `localhost`. Para una prueba temporal, ngrok puede
 publicar el backend, pero hay que tunelizar el puerto `8080`; publicar solo el
 frontend no crea un origen para Gateway. El repositorio no inicia ni configura
@@ -463,7 +467,8 @@ un frontend público, `VITE_API_URL` no debe ser `localhost`. Las operaciones
 administrativas todavía usan `VITE_MESSAGING_API_URL` y no pasan por este
 Gateway, por lo que requieren conectividad aparte con el servicio de mensajería.
 
-El API Gateway expone la API de productos. El backend debe tener configuradas
+El API Gateway expone las APIs de productos y creación de órdenes (`POST
+/api/ordenes`). El backend debe tener configuradas
 `MESSAGING_SERVICE_URL` y `KINESIS_SERVICE_URL` con una dirección alcanzable
 para publicar eventos; el Gateway no despliega ni reemplaza ese microservicio.
 Las llamadas administrativas del panel siguen usando `VITE_MESSAGING_API_URL`.
@@ -558,10 +563,15 @@ Para finalizar una sesión y detener inmediatamente el cobro por Kinesis:
 .\infra\cleanup-kinesis.ps1 -Region us-east-1
 ```
 
+El stack también contiene la tabla DynamoDB `pc-mania-orders`; su limpieza
+elimina las órdenes persistidas junto con los streams y las tablas de leases.
+
 ## Decisiones de alcance
 
-- No se agrega una base de datos; el inventario permanece en memoria.
-- La tienda mantiene únicamente permisos de lectura.
+- El inventario de productos permanece en memoria; las órdenes se pueden
+  guardar en DynamoDB con `ORDERS_PERSISTENCE=dynamodb`.
+- La tienda usa `pcmania-api/read` para el catálogo y `pcmania-api/order` para
+  crear órdenes; no recibe permisos de escritura administrativa.
 - El administrador usa `pcmania-api/write`, sin crear un scope adicional.
 - La idempotencia actual vive en memoria dentro de cada processor KCL; una
   versión distribuida y durable requeriría almacenamiento compartido.

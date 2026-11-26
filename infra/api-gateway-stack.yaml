@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: PC Mania regional API Gateway for the protected product API
+Description: PC Mania regional API Gateway for the protected product and order API
 
 Parameters:
   ApiName:
@@ -23,6 +23,9 @@ Parameters:
   WriteScope:
     Type: String
     Default: pcmania-api/write
+  OrderScope:
+    Type: String
+    Default: pcmania-api/order
   StageName:
     Type: String
     Default: prod
@@ -72,6 +75,13 @@ Resources:
       ParentId: !Ref ProductsResource
       PathPart: '{proxy+}'
 
+  OrdersResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref ProductApi
+      ParentId: !Ref ApiResource
+      PathPart: ordenes
+
   ListProducts:
     Type: AWS::ApiGateway::Method
     Properties:
@@ -87,6 +97,8 @@ Resources:
         Type: HTTP_PROXY
         IntegrationHttpMethod: GET
         Uri: !Sub '${BackendOrigin}/api/productos'
+        RequestParameters:
+          integration.request.header.ngrok-skip-browser-warning: "'true'"
         PassthroughBehavior: WHEN_NO_MATCH
 
   CreateProduct:
@@ -103,6 +115,8 @@ Resources:
         Type: HTTP_PROXY
         IntegrationHttpMethod: POST
         Uri: !Sub '${BackendOrigin}/api/productos'
+        RequestParameters:
+          integration.request.header.ngrok-skip-browser-warning: "'true'"
         PassthroughBehavior: WHEN_NO_MATCH
 
   GetProduct:
@@ -124,6 +138,7 @@ Resources:
         Uri: !Sub '${BackendOrigin}/api/productos/{proxy}'
         RequestParameters:
           integration.request.path.proxy: method.request.path.proxy
+          integration.request.header.ngrok-skip-browser-warning: "'true'"
         PassthroughBehavior: WHEN_NO_MATCH
 
   UpdateProduct:
@@ -144,6 +159,7 @@ Resources:
         Uri: !Sub '${BackendOrigin}/api/productos/{proxy}'
         RequestParameters:
           integration.request.path.proxy: method.request.path.proxy
+          integration.request.header.ngrok-skip-browser-warning: "'true'"
         PassthroughBehavior: WHEN_NO_MATCH
 
   DeleteProduct:
@@ -164,6 +180,25 @@ Resources:
         Uri: !Sub '${BackendOrigin}/api/productos/{proxy}'
         RequestParameters:
           integration.request.path.proxy: method.request.path.proxy
+          integration.request.header.ngrok-skip-browser-warning: "'true'"
+        PassthroughBehavior: WHEN_NO_MATCH
+
+  CreateOrder:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResourceId: !Ref OrdersResource
+      HttpMethod: POST
+      AuthorizationType: COGNITO_USER_POOLS
+      AuthorizerId: !Ref CognitoAuthorizer
+      AuthorizationScopes:
+        - !Ref OrderScope
+      Integration:
+        Type: HTTP_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub '${BackendOrigin}/api/ordenes'
+        RequestParameters:
+          integration.request.header.ngrok-skip-browser-warning: "'true'"
         PassthroughBehavior: WHEN_NO_MATCH
 
   ProductsOptions:
@@ -216,6 +251,30 @@ Resources:
             method.response.header.Access-Control-Allow-Methods: true
             method.response.header.Access-Control-Allow-Origin: true
 
+  OrdersOptions:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref ProductApi
+      ResourceId: !Ref OrdersResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: '200'
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Headers: "'Authorization,Content-Type'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+              method.response.header.Access-Control-Allow-Origin: !Sub "'${AllowedOrigin}'"
+      MethodResponses:
+        - StatusCode: '200'
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Headers: true
+            method.response.header.Access-Control-Allow-Methods: true
+            method.response.header.Access-Control-Allow-Origin: true
+
   Default4xxResponse:
     Type: AWS::ApiGateway::GatewayResponse
     Properties:
@@ -244,8 +303,10 @@ Resources:
       - GetProduct
       - UpdateProduct
       - DeleteProduct
+      - CreateOrder
       - ProductsOptions
       - ProductIdOptions
+      - OrdersOptions
       - Default4xxResponse
       - Default5xxResponse
     Properties:

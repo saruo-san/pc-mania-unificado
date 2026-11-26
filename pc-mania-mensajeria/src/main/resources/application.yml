@@ -18,6 +18,8 @@ security:
     admin-scope: ${MESSAGING_ADMIN_SCOPE:pcmania-api/write}
 
 pc-mania:
+  security:
+    order-event-secret: ${ORDER_EVENT_SHARED_SECRET:}
   messaging:
     poll-delay-ms: ${MESSAGING_POLL_DELAY_MS:1000}
     consumers-enabled: ${MESSAGING_CONSUMERS_ENABLED:false}

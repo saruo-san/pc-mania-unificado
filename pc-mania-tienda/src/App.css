@@ -445,6 +445,99 @@ button:active {
   transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
 }
 
+.agregar-carrito {
+  width: 100%;
+  margin-top: 16px;
+}
+
+.agregar-carrito:disabled,
+.checkout button:disabled,
+.carrito-controles button:disabled {
+  cursor: not-allowed;
+  opacity: .55;
+  transform: none;
+}
+
+.checkout {
+  margin-top: 36px;
+  padding: 22px;
+  border: 1px solid var(--border);
+  border-radius: 22px;
+  background: var(--surface);
+  box-shadow: 0 16px 30px var(--shadow);
+}
+
+.checkout-heading,
+.checkout-total,
+.carrito-lista li,
+.carrito-controles {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.checkout-heading {
+  margin-bottom: 16px;
+}
+
+.checkout-heading h2 {
+  font-size: 1.5rem;
+}
+
+.checkout-heading > strong,
+.checkout-total strong {
+  color: var(--accent);
+}
+
+.carrito-lista {
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.carrito-lista li {
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.carrito-lista li > div:first-child strong,
+.carrito-lista li > div:first-child span {
+  display: block;
+}
+
+.carrito-lista li > div:first-child span {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: .82rem;
+}
+
+.carrito-controles button {
+  min-width: 36px;
+  padding: 7px 10px;
+}
+
+.checkout-total {
+  padding: 16px 0;
+  margin: 8px 0 14px;
+  border-top: 1px solid var(--border);
+  font-size: 1.1rem;
+}
+
+.checkout > button {
+  width: 100%;
+}
+
+.orden-confirmada {
+  display: block;
+  margin: 16px 0 0;
+  border-color: rgba(16, 185, 129, .35);
+}
+
+.orden-confirmada strong {
+  color: var(--success);
+}
+
 .tarjeta:hover {
   transform: translateY(-3px);
   box-shadow: 0 20px 40px var(--shadow-strong);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchAuthSession, signInWithRedirect, signOut } from 'aws-amplify/auth';
-import { obtenerCatalogo, type Producto } from './api';
+import { crearOrden, obtenerCatalogo, type Orden, type Producto } from './api';
 import { configFaltante, isConfigOk } from './config';
 import './App.css';
 
@@ -99,6 +99,10 @@ function App() {
   const [marcaSeleccionada, setMarcaSeleccionada] = useState('');
   const [orden, setOrden] = useState<OrdenProductos>('nombre');
   const [pagina, setPagina] = useState(1);
+  const [carrito, setCarrito] = useState<Record<number, number>>({});
+  const [creandoOrden, setCreandoOrden] = useState(false);
+  const [ordenCreada, setOrdenCreada] = useState<Orden | null>(null);
+  const [errorOrden, setErrorOrden] = useState<string | null>(null);
 
   useEffect(() => {
     document.body.dataset.theme = theme;
@@ -165,6 +169,48 @@ function App() {
   const totalPaginas = Math.max(1, Math.ceil(catalogoFiltrado.length / productosPorPagina));
   const paginaActual = Math.min(pagina, totalPaginas);
   const productosVisibles = catalogoFiltrado.slice((paginaActual - 1) * productosPorPagina, paginaActual * productosPorPagina);
+  const lineasCarrito = Object.entries(carrito)
+    .map(([id, cantidad]) => {
+      const producto = catalogo.find((item) => item.id === Number(id));
+      return producto ? { producto, cantidad } : null;
+    })
+    .filter((linea): linea is { producto: Producto; cantidad: number } => linea !== null);
+  const totalCarrito = lineasCarrito.reduce(
+    (total, linea) => total + linea.producto.precio * linea.cantidad,
+    0,
+  );
+
+  function agregarAlCarrito(producto: Producto) {
+    setErrorOrden(null);
+    setOrdenCreada(null);
+    setCarrito((actual) => ({
+      ...actual,
+      [producto.id]: Math.min((actual[producto.id] ?? 0) + 1, producto.stock),
+    }));
+  }
+
+  async function confirmarOrden() {
+    if (lineasCarrito.length === 0) return;
+
+    setCreandoOrden(true);
+    setErrorOrden(null);
+    setOrdenCreada(null);
+    try {
+      const ordenCreadaResponse = await crearOrden({
+        lineas: lineasCarrito.map(({ producto, cantidad }) => ({
+          productoId: producto.id,
+          cantidad,
+        })),
+      });
+      setOrdenCreada(ordenCreadaResponse);
+      setCarrito({});
+      await cargarCatalogo();
+    } catch (err) {
+      setErrorOrden(err instanceof Error ? err.message : 'No se pudo completar la compra');
+    } finally {
+      setCreandoOrden(false);
+    }
+  }
 
   if (!isConfigOk) {
     return (
@@ -304,6 +350,16 @@ function App() {
                       {producto.stock > 0 ? `${producto.stock} disponibles` : 'Agotado'}
                     </span>
                   </div>
+                  <button
+                    type="button"
+                    className="agregar-carrito"
+                    disabled={producto.stock === 0 || (carrito[producto.id] ?? 0) >= producto.stock}
+                    onClick={() => agregarAlCarrito(producto)}
+                  >
+                    {(carrito[producto.id] ?? 0) >= producto.stock && producto.stock > 0
+                      ? 'Stock en carrito'
+                      : producto.stock > 0 ? 'Agregar al carrito' : 'Sin stock'}
+                  </button>
                 </article>
               ))}
             </div>
@@ -314,6 +370,66 @@ function App() {
                 <button type="button" className="ghost-button small" disabled={paginaActual === totalPaginas} onClick={() => setPagina((actual) => Math.min(totalPaginas, actual + 1))}>Siguiente</button>
               </div>
             )}
+            <section className="checkout" aria-labelledby="checkout-title">
+              <div className="checkout-heading">
+                <div>
+                  <p className="eyebrow">COMPRA DE DEMOSTRACIÓN</p>
+                  <h2 id="checkout-title">Tu carrito</h2>
+                </div>
+                <strong>{lineasCarrito.reduce((count, linea) => count + linea.cantidad, 0)} productos</strong>
+              </div>
+              {lineasCarrito.length === 0 ? (
+                <p className="mensaje">Agrega componentes al carrito para crear una orden.</p>
+              ) : (
+                <>
+                  <ul className="carrito-lista">
+                    {lineasCarrito.map(({ producto, cantidad }) => (
+                      <li key={producto.id}>
+                        <div>
+                          <strong>{producto.nombre}</strong>
+                          <span>${producto.precio.toLocaleString('es-CL')} c/u</span>
+                        </div>
+                        <div className="carrito-controles">
+                          <button
+                            type="button"
+                            className="ghost-button small"
+                            aria-label={`Quitar una unidad de ${producto.nombre}`}
+                            onClick={() => setCarrito((actual) => {
+                              const siguiente = { ...actual };
+                              if (siguiente[producto.id] <= 1) delete siguiente[producto.id];
+                              else siguiente[producto.id] -= 1;
+                              return siguiente;
+                            })}
+                          >−</button>
+                          <span>{cantidad}</span>
+                          <button
+                            type="button"
+                            className="ghost-button small"
+                            aria-label={`Agregar una unidad de ${producto.nombre}`}
+                            disabled={cantidad >= producto.stock}
+                            onClick={() => agregarAlCarrito(producto)}
+                          >+</button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="checkout-total">
+                    <span>Total</span>
+                    <strong>${totalCarrito.toLocaleString('es-CL')}</strong>
+                  </div>
+                  <button type="button" disabled={creandoOrden} onClick={() => void confirmarOrden()}>
+                    {creandoOrden ? 'Procesando orden...' : 'Confirmar orden de demostración'}
+                  </button>
+                </>
+              )}
+              {errorOrden && <div className="estado-panel error-panel" role="alert">{errorOrden}</div>}
+              {ordenCreada && (
+                <div className="estado-panel orden-confirmada" role="status">
+                  <strong>Orden creada: {ordenCreada.id}</strong>
+                  <span>Evento order.created enviado. Total: ${ordenCreada.total.toLocaleString('es-CL')}.</span>
+                </div>
+              )}
+            </section>
           </main>
         )}
       </div>

@@ -8,6 +8,7 @@ param(
     [string]$AllowedOrigin = "*",
     [string]$ReadScope = "pcmania-api/read",
     [string]$WriteScope = "pcmania-api/write",
+    [string]$OrderScope = "pcmania-api/order",
     [string]$StageName = "prod",
     [string]$DeploymentVersion = "1",
     [string]$Profile = ""
@@ -36,6 +37,7 @@ $awsArguments = @(
     "AllowedOrigin=$AllowedOrigin",
     "ReadScope=$ReadScope",
     "WriteScope=$WriteScope",
+    "OrderScope=$OrderScope",
     "StageName=$StageName",
     "DeploymentVersion=$DeploymentVersion"
 )

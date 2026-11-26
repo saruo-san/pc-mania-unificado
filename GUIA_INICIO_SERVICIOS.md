@@ -26,14 +26,20 @@ crea antes de iniciar los servicios locales:
 ```powershell
 .\start-demo.ps1 -EnableSnsSqs
 .\start-demo.ps1 -EnableKinesis
-.\start-demo.ps1 -EnableSnsSqs -EnableKinesis -DeployKinesis
+.\start-demo.ps1 -EnableSnsSqs -EnableKinesis -EnableCloudOrders -DeployKinesis
 ```
 
-`-EnableKinesis` verifica que los tres streams estén activos. Añade
+`-EnableKinesis` verifica que los tres streams estén activos.
+`-EnableCloudOrders` guarda las órdenes en la tabla DynamoDB
+`pc-mania-orders`; sin esa opción se usa memoria local. Añade
 `-DeployKinesis` para aplicar el stack CloudFormation antes de verificar los
-streams y arrancar la demo. Esto crea los streams, tablas de leases y alarmas,
-y puede generar costos. El despliegue necesita permisos de CloudFormation,
-Kinesis, DynamoDB y CloudWatch.
+streams y arrancar la demo. Esto crea los streams, tablas de leases, tabla de
+órdenes y alarmas, y puede generar costos. El despliegue necesita permisos de
+CloudFormation, Kinesis, DynamoDB y CloudWatch.
+El launcher genera una clave HMAC temporal para que la mensajería acepte
+únicamente eventos de órdenes firmados por el backend. Si ejecutas ambos
+servicios manualmente, configura el mismo `ORDER_EVENT_SHARED_SECRET` en sus
+archivos `.env` y no publiques esa clave.
 SNS/SQS deben estar provisionados previamente. No copies credenciales al script,
 a un `.env` ni a este documento; usa un perfil AWS o variables temporales en la
 misma terminal. El launcher las hereda sin imprimirlas ni guardarlas. Nunca se
@@ -42,6 +48,13 @@ debe enviar `credenciales.md` al repositorio.
 API Gateway no forma parte del arranque local: requiere un backend accesible
 desde AWS mediante HTTPS, además de los ARN de Cognito. Consulta
 `docs/EV3-ARQUITECTURA.md` para desplegarlo cuando exista ese origen público.
+Después de desplegarlo, puedes hacer que la tienda y el panel consuman API
+Gateway indicando su URL base:
+
+```powershell
+.\start-demo.ps1 -EnableSnsSqs -EnableKinesis -EnableCloudOrders `
+  -ApiBaseUrl "https://<api-id>.execute-api.us-east-1.amazonaws.com/prod"
+```
 
 El script espera a que mensajería y backend respondan en `/health`, y evita
 iniciar una segunda instancia si alguno de los puertos requeridos ya está en

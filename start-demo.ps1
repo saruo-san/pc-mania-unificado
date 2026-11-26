@@ -2,8 +2,10 @@
 param(
     [switch]$EnableSnsSqs,
     [switch]$EnableKinesis,
+    [switch]$EnableCloudOrders,
     [switch]$DeployKinesis,
     [switch]$CheckOnly,
+    [string]$ApiBaseUrl = "http://localhost:8080",
     [ValidateRange(30, 600)]
     [int]$StartupTimeoutSeconds = 180
 )
@@ -227,6 +229,25 @@ function Invoke-AwsPreflight {
         }
     }
 
+    if ([Environment]::GetEnvironmentVariable("ORDERS_PERSISTENCE", "Process") -eq "dynamodb") {
+        $ordersTable = [Environment]::GetEnvironmentVariable("ORDERS_TABLE", "Process")
+        if ([string]::IsNullOrWhiteSpace($ordersTable)) {
+            $ordersTable = "pc-mania-orders"
+        }
+        $tableResult = Invoke-AwsCli -Arguments @(
+            "dynamodb", "describe-table",
+            "--table-name", $ordersTable,
+            "--region", $region,
+            "--query", "Table.TableStatus",
+            "--output", "text",
+            "--no-cli-pager"
+        )
+        if ($tableResult.ExitCode -ne 0 -or (($tableResult.Output | Out-String).Trim() -ne "ACTIVE")) {
+            $detail = ($tableResult.Output | Out-String).Trim()
+            throw "La tabla de órdenes '$ordersTable' no está accesible/ACTIVE. Despliega el stack Kinesis antes de activar la persistencia cloud. Detalle de AWS CLI: $detail"
+        }
+    }
+
     Write-Host "Credenciales AWS y recursos requeridos verificados (sin desplegar ni modificar recursos)."
 }
 
@@ -352,6 +373,14 @@ Set-DefaultEnvironmentValue -Name "MESSAGING_EVENTS_ENABLED" -Value "false"
 Set-DefaultEnvironmentValue -Name "MESSAGING_CONSUMERS_ENABLED" -Value "false"
 Set-DefaultEnvironmentValue -Name "KINESIS_EVENTS_ENABLED" -Value "false"
 Set-DefaultEnvironmentValue -Name "KINESIS_ENABLED" -Value "false"
+Set-DefaultEnvironmentValue -Name "ORDERS_PERSISTENCE" -Value "memory"
+
+if ($ApiBaseUrl -notmatch '^https?://') {
+    throw "ApiBaseUrl debe ser una URL HTTP o HTTPS absoluta."
+}
+if ($env:ORDERS_PERSISTENCE -notin @("memory", "dynamodb")) {
+    throw "ORDERS_PERSISTENCE debe ser 'memory' o 'dynamodb'."
+}
 
 if ($EnableSnsSqs) {
     $env:MESSAGING_EVENTS_ENABLED = "true"
@@ -361,6 +390,10 @@ if ($EnableSnsSqs) {
 if ($EnableKinesis) {
     $env:KINESIS_EVENTS_ENABLED = "true"
     $env:KINESIS_ENABLED = "true"
+}
+
+if ($EnableCloudOrders) {
+    $env:ORDERS_PERSISTENCE = "dynamodb"
 }
 
 if ((Test-Enabled "KINESIS_EVENTS_ENABLED") -and !(Test-Enabled "KINESIS_ENABLED")) {
@@ -374,7 +407,8 @@ if ($DeployKinesis -and !(Test-Enabled "KINESIS_ENABLED")) {
 $awsRequired = (Test-Enabled "MESSAGING_EVENTS_ENABLED") -or
     (Test-Enabled "MESSAGING_CONSUMERS_ENABLED") -or
     (Test-Enabled "KINESIS_EVENTS_ENABLED") -or
-    (Test-Enabled "KINESIS_ENABLED")
+    (Test-Enabled "KINESIS_ENABLED") -or
+    ($env:ORDERS_PERSISTENCE -eq "dynamodb")
 if ($awsRequired) {
     Invoke-AwsPreflight
 }
@@ -395,6 +429,19 @@ if ($CheckOnly) {
     return
 }
 
+if ([string]::IsNullOrWhiteSpace($env:ORDER_EVENT_SHARED_SECRET)) {
+    $secretBytes = New-Object byte[] 32
+    $randomGenerator = [Security.Cryptography.RandomNumberGenerator]::Create()
+    try {
+        $randomGenerator.GetBytes($secretBytes)
+    }
+    finally {
+        $randomGenerator.Dispose()
+    }
+    $env:ORDER_EVENT_SHARED_SECRET = [Convert]::ToBase64String($secretBytes)
+    Write-Host "Se generó una clave temporal para autenticar eventos de órdenes entre servicios."
+}
+
 Write-Host "Iniciando mensajería; revisa su ventana para ver los logs."
 Start-ServiceWindow -Title "PC Mania - Mensajería" `
     -WorkingDirectory $messagingDirectory `
@@ -413,7 +460,7 @@ Wait-ForPort -Port 8080 -ServiceName "Backend"
 $null = Invoke-WebRequest -Uri "http://localhost:8080/health" `
     -UseBasicParsing -TimeoutSec 10
 
-$env:VITE_API_URL = "http://localhost:8080"
+$env:VITE_API_URL = $ApiBaseUrl.TrimEnd("/")
 $env:VITE_MESSAGING_API_URL = "http://localhost:8081"
 $env:VITE_REDIRECT_SIGN_IN = "http://localhost:5174/"
 $env:VITE_REDIRECT_SIGN_OUT = "http://localhost:5174/"

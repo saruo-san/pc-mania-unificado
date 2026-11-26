@@ -56,6 +56,8 @@ public class SecurityConfig {
                         .hasAuthority("SCOPE_pcmania-api/write")
                         .requestMatchers(HttpMethod.DELETE, "/api/productos/**")
                         .hasAuthority("SCOPE_pcmania-api/write")
+                        .requestMatchers(HttpMethod.POST, "/api/ordenes")
+                        .hasAnyAuthority("SCOPE_pcmania-api/order", "SCOPE_pcmania-api/write")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(oauth2 -> oauth2
                         .authenticationManagerResolver(authenticationManagerResolver()));

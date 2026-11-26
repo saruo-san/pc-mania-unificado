@@ -77,6 +77,18 @@ Resources:
         - AttributeName: leaseKey
           KeyType: HASH
 
+  OrdersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pc-mania-orders
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: orderId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: orderId
+          KeyType: HASH
+
   ProductIteratorAgeAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -120,3 +132,5 @@ Outputs:
     Value: !Ref OrderStream
   DlqStreamName:
     Value: !Ref DlqStream
+  OrdersTableName:
+    Value: !Ref OrdersTable

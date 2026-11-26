@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -56,6 +57,38 @@ public class ProductoService {
         existente.setPrecio(datos.getPrecio());
         existente.setStock(datos.getStock());
         return existente;
+    }
+
+    public synchronized Map<Long, Producto> descontarStock(Map<Long, Integer> cantidades) {
+        Map<Long, Producto> productos = new LinkedHashMap<>();
+        for (Map.Entry<Long, Integer> entry : cantidades.entrySet()) {
+            Producto producto = buscarPorId(entry.getKey());
+            if (producto.getStock() < entry.getValue()) {
+                throw new StockInsuficienteException(entry.getKey());
+            }
+            productos.put(entry.getKey(), new Producto(
+                    producto.getId(),
+                    producto.getNombre(),
+                    producto.getMarca(),
+                    producto.getCategoria(),
+                    producto.getPrecio(),
+                    producto.getStock()));
+        }
+
+        cantidades.forEach((id, cantidad) -> {
+            Producto producto = inventario.get(id);
+            producto.setStock(producto.getStock() - cantidad);
+        });
+        return productos;
+    }
+
+    public synchronized void restaurarStock(Map<Long, Integer> cantidades) {
+        cantidades.forEach((id, cantidad) -> {
+            Producto producto = inventario.get(id);
+            if (producto != null) {
+                producto.setStock(producto.getStock() + cantidad);
+            }
+        });
     }
 
     public void eliminar(Long id) {

@@ -14,7 +14,7 @@ if (isConfigOk) {
         loginWith: {
           oauth: {
             domain: config.domain!,
-            scopes: ['openid', 'email', 'profile', 'pcmania-api/read'],
+            scopes: ['openid', 'email', 'profile', 'pcmania-api/read', 'pcmania-api/order'],
             redirectSignIn: [config.redirectSignIn!],
             redirectSignOut: [config.redirectSignOut!],
             responseType: 'code',

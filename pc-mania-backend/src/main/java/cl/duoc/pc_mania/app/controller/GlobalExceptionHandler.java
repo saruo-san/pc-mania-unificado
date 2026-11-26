@@ -2,6 +2,7 @@ package cl.duoc.pc_mania.app.controller;
 
 import cl.duoc.pc_mania.app.service.ProductoNoEncontradoException;
 import cl.duoc.pc_mania.app.service.ProductoDuplicadoException;
+import cl.duoc.pc_mania.app.service.StockInsuficienteException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -23,6 +24,11 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(ProductoDuplicadoException.class)
     public ResponseEntity<Map<String, Object>> manejarDuplicado(ProductoDuplicadoException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(cuerpoError(ex.getMessage()));
+    }
+
+    @ExceptionHandler(StockInsuficienteException.class)
+    public ResponseEntity<Map<String, Object>> manejarStockInsuficiente(StockInsuficienteException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT).body(cuerpoError(ex.getMessage()));
     }
 

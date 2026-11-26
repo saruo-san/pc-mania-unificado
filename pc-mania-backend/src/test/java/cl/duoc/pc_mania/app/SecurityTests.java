@@ -71,4 +71,31 @@ class SecurityTests {
                                 """))
                 .andExpect(status().isCreated());
     }
+
+    @Test
+    void crearOrdenRequiereScopeWrite() throws Exception {
+        String request = """
+                {
+                  "lineas": [{"productoId": 1, "cantidad": 1}]
+                }
+                """;
+
+        mockMvc.perform(post("/api/ordenes")
+                        .with(jwt().authorities(() -> "SCOPE_pcmania-api/read"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isForbidden());
+
+        mockMvc.perform(post("/api/ordenes")
+                        .with(jwt().authorities(() -> "SCOPE_pcmania-api/write"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isCreated());
+
+        mockMvc.perform(post("/api/ordenes")
+                        .with(jwt().authorities(() -> "SCOPE_pcmania-api/order"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(request))
+                .andExpect(status().isCreated());
+    }
 }

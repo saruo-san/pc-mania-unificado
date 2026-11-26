@@ -12,6 +12,8 @@ public class KinesisProperties {
     private boolean enabled;
     private String initialPosition = "TRIM_HORIZON";
     private String leaseTablePrefix = "pc-mania-kinesis";
+    private String idempotencyTable = "pc-mania-kinesis-idempotency";
+    private int idempotencyRetentionHours = 24;
     private Retry retry = new Retry();
     private Map<String, StreamConfig> streams = new LinkedHashMap<>();
     private Map<String, ConsumerApplication> consumerApplications = new LinkedHashMap<>();
@@ -24,6 +26,12 @@ public class KinesisProperties {
     public void setInitialPosition(String initialPosition) { this.initialPosition = initialPosition; }
     public String getLeaseTablePrefix() { return leaseTablePrefix; }
     public void setLeaseTablePrefix(String leaseTablePrefix) { this.leaseTablePrefix = leaseTablePrefix; }
+    public String getIdempotencyTable() { return idempotencyTable; }
+    public void setIdempotencyTable(String idempotencyTable) { this.idempotencyTable = idempotencyTable; }
+    public int getIdempotencyRetentionHours() { return idempotencyRetentionHours; }
+    public void setIdempotencyRetentionHours(int idempotencyRetentionHours) {
+        this.idempotencyRetentionHours = idempotencyRetentionHours;
+    }
     public Retry getRetry() { return retry; }
     public void setRetry(Retry retry) { this.retry = retry; }
     public Map<String, StreamConfig> getStreams() { return streams; }

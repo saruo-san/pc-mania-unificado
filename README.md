@@ -518,12 +518,16 @@ dinámicamente los shards. El checkpoint se guarda después del procesamiento
 del lote y al finalizar o detener un shard. El panel consulta la tabla para
 mostrar los leases, workers asignados y checkpoints; el estado del hilo KCL se
 presenta por separado del estado de DynamoDB.
+La deduplicación también se persiste en `pc-mania-kinesis-idempotency`, usando
+una clave distinta por aplicación consumidora y evento. DynamoDB elimina los
+registros con TTL después de 24 horas, la misma ventana configurada para los
+streams.
 
 ### Resiliencia
 
 - Validación estructural y de contenido.
-- Idempotencia en memoria por `eventId` y secuencia dentro de cada processor
-  KCL; no es distribuida ni sobrevive al reinicio.
+- Idempotencia distribuida por aplicación y `eventId`, persistida en DynamoDB
+  durante 24 horas para cubrir la ventana de retención de Kinesis.
 - Reintentos configurables con espera creciente para fallos transitorios y
   errores de publicación al DLQ.
 - Eventos malformados y fallidos enviados al `pc-mania-kinesis-dlq`; si no se

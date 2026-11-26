@@ -35,6 +35,7 @@ public class KinesisConsumerService {
     private final ObjectMapper objectMapper;
     private final KinesisProducerService producerService;
     private final KinesisEventStatusService statusService;
+    private final KinesisEventIdempotencyService idempotencyService;
     private final List<Scheduler> schedulers = new ArrayList<>();
     private final List<Thread> schedulerThreads = new ArrayList<>();
     private final Map<String, Thread> schedulerThreadsByApplication = new ConcurrentHashMap<>();
@@ -45,7 +46,8 @@ public class KinesisConsumerService {
                                   CloudWatchAsyncClient cloudWatchAsyncClient,
                                   ObjectMapper objectMapper,
                                   KinesisProducerService producerService,
-                                  KinesisEventStatusService statusService) {
+                                  KinesisEventStatusService statusService,
+                                  KinesisEventIdempotencyService idempotencyService) {
         this.properties = properties;
         this.kinesisAsyncClient = kinesisAsyncClient;
         this.dynamoDbAsyncClient = dynamoDbAsyncClient;
@@ -53,6 +55,7 @@ public class KinesisConsumerService {
         this.objectMapper = objectMapper;
         this.producerService = producerService;
         this.statusService = statusService;
+        this.idempotencyService = idempotencyService;
     }
 
     @PostConstruct
@@ -75,7 +78,7 @@ public class KinesisConsumerService {
         String leaseTable = properties.getLeaseTablePrefix() + "-" + applicationName;
         ShardRecordProcessorFactory processorFactory = () ->
                 new KinesisRecordProcessor(applicationName, streamKey, objectMapper,
-                        producerService, statusService, properties.getRetry());
+                        producerService, statusService, idempotencyService, properties.getRetry());
 
         ConfigsBuilder configs = new ConfigsBuilder(
                 streamName,

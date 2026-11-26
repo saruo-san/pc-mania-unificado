@@ -227,6 +227,25 @@ function Invoke-AwsPreflight {
                 throw "El stream '$($streamNames[$index])' tiene estado '$status', no ACTIVE. Este launcher no crea recursos AWS."
             }
         }
+
+        $idempotencyTable = [Environment]::GetEnvironmentVariable(
+            "KINESIS_IDEMPOTENCY_TABLE", "Process")
+        if ([string]::IsNullOrWhiteSpace($idempotencyTable)) {
+            $idempotencyTable = "pc-mania-kinesis-idempotency"
+        }
+        $idempotencyTableResult = Invoke-AwsCli -Arguments @(
+            "dynamodb", "describe-table",
+            "--table-name", $idempotencyTable,
+            "--region", $region,
+            "--query", "Table.TableStatus",
+            "--output", "text",
+            "--no-cli-pager"
+        )
+        if ($idempotencyTableResult.ExitCode -ne 0 -or
+            (($idempotencyTableResult.Output | Out-String).Trim() -ne "ACTIVE")) {
+            $detail = ($idempotencyTableResult.Output | Out-String).Trim()
+            throw "La tabla de idempotencia Kinesis '$idempotencyTable' no está accesible/ACTIVE. Actualiza el stack con infra\deploy-kinesis.ps1 antes de activar Kinesis. Detalle de AWS CLI: $detail"
+        }
     }
 
     if ([Environment]::GetEnvironmentVariable("ORDERS_PERSISTENCE", "Process") -eq "dynamodb") {

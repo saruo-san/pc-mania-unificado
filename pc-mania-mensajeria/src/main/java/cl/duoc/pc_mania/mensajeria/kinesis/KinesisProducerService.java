@@ -86,8 +86,7 @@ public class KinesisProducerService {
     public String putDlqRaw(String rawJson, String originalPartitionKey,
                             String originalStream, String sequenceNumber, String cause) {
         JsonNode event = parseEvent(rawJson);
-        String identity = originalStream + "|" + originalPartitionKey + "|" + sequenceNumber + "|" + rawJson;
-        String fallbackId = "invalid-" + UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8));
+        String fallbackId = fallbackDlqEventId(rawJson, originalPartitionKey, originalStream, sequenceNumber);
         String eventId = text(event, "eventId", fallbackId);
         String correlationId = text(event, "correlationId", eventId);
         String eventType = text(event, "eventType", "event.invalid");
@@ -114,6 +113,12 @@ public class KinesisProducerService {
                 metadata);
         put("dlq", dlqEvent);
         return eventId;
+    }
+
+    static String fallbackDlqEventId(String rawJson, String originalPartitionKey,
+                                     String originalStream, String sequenceNumber) {
+        String identity = originalStream + "|" + originalPartitionKey + "|" + sequenceNumber + "|" + rawJson;
+        return "invalid-" + UUID.nameUUIDFromBytes(identity.getBytes(StandardCharsets.UTF_8));
     }
 
     private java.util.Map<String, String> metadataWithCause(KinesisEvent event, String cause) {

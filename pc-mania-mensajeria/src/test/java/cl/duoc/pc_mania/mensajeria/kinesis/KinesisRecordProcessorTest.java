@@ -33,11 +33,15 @@ class KinesisRecordProcessorTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private KinesisProducerService producerService;
     private KinesisEventStatusService statusService;
+    private KinesisEventIdempotencyService idempotencyService;
 
     @BeforeEach
     void setUp() {
         producerService = mock(KinesisProducerService.class);
         statusService = new KinesisEventStatusService();
+        idempotencyService = mock(KinesisEventIdempotencyService.class);
+        when(idempotencyService.isProcessed(anyString(), anyString())).thenReturn(false);
+        when(idempotencyService.markProcessed(anyString(), anyString())).thenReturn(true);
     }
 
     @Test
@@ -90,7 +94,7 @@ class KinesisRecordProcessorTest {
     }
 
     @Test
-    void marksARepeatedEventAsDuplicateWithinTheSameProcessor() throws Exception {
+    void marksARepeatedEventAsDuplicateAfterProcessorRestart() throws Exception {
         KinesisEvent event = new KinesisEvent(
                 "event-1",
                 "correlation-1",
@@ -102,13 +106,16 @@ class KinesisRecordProcessorTest {
         String json = objectMapper.writeValueAsString(event);
         RecordProcessorCheckpointer firstCheckpointer = mock(RecordProcessorCheckpointer.class);
         RecordProcessorCheckpointer secondCheckpointer = mock(RecordProcessorCheckpointer.class);
-        KinesisRecordProcessor processor = processor(1);
+        KinesisRecordProcessor firstProcessor = processor(1);
+        KinesisRecordProcessor secondProcessor = processor(1);
+        when(idempotencyService.isProcessed("product-realtime", "event-1")).thenReturn(false, true);
 
-        processor.processRecords(input(json, "3", firstCheckpointer));
-        processor.processRecords(input(json, "4", secondCheckpointer));
+        firstProcessor.processRecords(input(json, "3", firstCheckpointer));
+        secondProcessor.processRecords(input(json, "4", secondCheckpointer));
 
         assertEquals("DUPLICATE", statusService.findByEventId("event-1").status());
         verify(producerService, never()).putDlq(any(KinesisEvent.class), anyString());
+        verify(idempotencyService).markProcessed("product-realtime", "event-1");
         verify(firstCheckpointer).checkpoint("3");
         verify(secondCheckpointer).checkpoint("4");
     }
@@ -118,7 +125,8 @@ class KinesisRecordProcessorTest {
         retry.setMaxAttempts(attempts);
         retry.setInitialDelayMs(0);
         return new KinesisRecordProcessor(
-                "product-realtime", "product", objectMapper, producerService, statusService, retry);
+                "product-realtime", "product", objectMapper, producerService, statusService,
+                idempotencyService, retry);
     }
 
     private ProcessRecordsInput input(String json, String sequenceNumber,

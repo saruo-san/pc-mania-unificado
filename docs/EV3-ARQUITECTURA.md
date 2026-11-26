@@ -67,6 +67,11 @@ sequenceDiagram
 Si un evento es inválido o irrecuperable, el consumidor lo publica en el stream
 DLQ. Si no puede guardar el registro en el DLQ, no avanza el checkpoint del
 lote. Los fallos simulados se activan desde los metadatos de demostración.
+Cada aplicación consumidora registra los `eventId` procesados en la tabla
+`pc-mania-kinesis-idempotency`, con expiración lógica y TTL de DynamoDB a las
+24 horas. Las claves están separadas por aplicación, de modo que cada consumer
+group procesa el evento independientemente y puede omitir redeliveries tras un
+reinicio dentro de la ventana de retención.
 
 ## Flujo alternativo de SNS/SQS
 

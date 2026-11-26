@@ -27,19 +27,21 @@ public class KinesisRecordProcessor implements ShardRecordProcessor {
     private final ObjectMapper objectMapper;
     private final KinesisProducerService producerService;
     private final KinesisEventStatusService statusService;
+    private final KinesisEventIdempotencyService idempotencyService;
     private final KinesisProperties.Retry retry;
-    private final Set<String> processedEvents = ConcurrentHashMap.newKeySet();
     private final Set<String> processedSequenceNumbers = ConcurrentHashMap.newKeySet();
 
     public KinesisRecordProcessor(String applicationName, String streamKey, ObjectMapper objectMapper,
                                   KinesisProducerService producerService,
                                   KinesisEventStatusService statusService,
+                                  KinesisEventIdempotencyService idempotencyService,
                                   KinesisProperties.Retry retry) {
         this.applicationName = applicationName;
         this.streamKey = streamKey;
         this.objectMapper = objectMapper;
         this.producerService = producerService;
         this.statusService = statusService;
+        this.idempotencyService = idempotencyService;
         this.retry = retry;
         if (retry.getMaxAttempts() < 1 || retry.getInitialDelayMs() < 0) {
             throw new IllegalArgumentException("La configuración de reintentos Kinesis no es válida");
@@ -64,38 +66,36 @@ public class KinesisRecordProcessor implements ShardRecordProcessor {
                 continue;
             }
             String json = StandardCharsets.UTF_8.decode(record.data().duplicate()).toString();
+            String eventId = eventId(json, record.partitionKey(), sequenceNumber);
+            if (idempotencyService.isProcessed(applicationName, eventId)) {
+                statusService.markDuplicate(eventId, applicationName, sequenceNumber);
+                log.info("Kinesis evento duplicado omitido application={} eventId={} sequenceNumber={}",
+                        applicationName, eventId, sequenceNumber);
+                processedSequenceNumbers.add(sequenceNumber);
+                lastProcessedSequenceNumber = sequenceNumber;
+                continue;
+            }
+
             KinesisEvent event = null;
             boolean eventIsValid = false;
+            String failedEventId = null;
             try {
                 event = objectMapper.readValue(json, KinesisEvent.class);
                 validate(event);
                 eventIsValid = true;
 
-                if (processedEvents.contains(event.eventId())) {
-                    statusService.markDuplicate(event.eventId(), applicationName, sequenceNumber);
-                    log.info("Kinesis evento duplicado omitido application={} eventId={} correlationId={} sequenceNumber={}",
-                            applicationName, event.eventId(), event.correlationId(), sequenceNumber);
-                } else {
-                    if ("true".equalsIgnoreCase(metadata(event, "forceFailure"))) {
-                        throw new IllegalArgumentException("Fallo irrecuperable solicitado para demostración");
-                    }
-                    if ("true".equalsIgnoreCase(metadata(event, "transientFailure"))) {
-                        processWithTransientRetries(event);
-                    }
-                    statusService.markProcessed(event.eventId(), applicationName, sequenceNumber);
-                    processedEvents.add(event.eventId());
-                    log.info("Kinesis evento procesado application={} eventId={} correlationId={} eventType={} sequenceNumber={} shardLagMs={}",
-                            applicationName, event.eventId(), event.correlationId(), event.eventType(),
-                            sequenceNumber, input.millisBehindLatest());
+                if ("true".equalsIgnoreCase(metadata(event, "forceFailure"))) {
+                    throw new IllegalArgumentException("Fallo irrecuperable solicitado para demostración");
+                }
+                if ("true".equalsIgnoreCase(metadata(event, "transientFailure"))) {
+                    processWithTransientRetries(event);
                 }
             } catch (Exception ex) {
                 try {
-                    String eventId = sendToDlqWithRetries(event, eventIsValid, json,
+                    failedEventId = sendToDlqWithRetries(event, eventIsValid, json,
                             record.partitionKey(), sequenceNumber, ex);
-                    statusService.markFailed(eventId, applicationName, sequenceNumber);
-                    processedEvents.add(eventId);
                     log.error("Evento Kinesis enviado al DLQ application={} eventId={} correlationId={} sequenceNumber={} cause={}",
-                            applicationName, event == null ? eventId : event.eventId(),
+                            applicationName, event == null ? failedEventId : event.eventId(),
                             event == null ? "unknown" : event.correlationId(),
                             sequenceNumber, ex.getMessage());
                 } catch (Exception dlqEx) {
@@ -109,6 +109,22 @@ public class KinesisRecordProcessor implements ShardRecordProcessor {
                             "No se pudo guardar el evento de Kinesis en DLQ; el registro será reprocesado", dlqEx);
                 }
             }
+
+            if (idempotencyService.markProcessed(applicationName, eventId)) {
+                if (failedEventId != null) {
+                    statusService.markFailed(failedEventId, applicationName, sequenceNumber);
+                } else {
+                    statusService.markProcessed(eventId, applicationName, sequenceNumber);
+                    log.info("Kinesis evento procesado application={} eventId={} correlationId={} eventType={} sequenceNumber={} shardLagMs={}",
+                            applicationName, event.eventId(), event.correlationId(), event.eventType(),
+                            sequenceNumber, input.millisBehindLatest());
+                }
+            } else {
+                statusService.markDuplicate(eventId, applicationName, sequenceNumber);
+                log.info("Kinesis evento duplicado omitido application={} eventId={} sequenceNumber={}",
+                        applicationName, eventId, sequenceNumber);
+            }
+
             processedSequenceNumbers.add(sequenceNumber);
             lastProcessedSequenceNumber = sequenceNumber;
         }
@@ -121,6 +137,23 @@ public class KinesisRecordProcessor implements ShardRecordProcessor {
                         applicationName, lastProcessedSequenceNumber, ex.getMessage());
             }
         }
+    }
+
+    private String eventId(String json, String partitionKey, String sequenceNumber) {
+        try {
+            JsonNode event = objectMapper.readTree(json);
+            if (event != null && event.path("eventId").isTextual()) {
+                String eventId = event.path("eventId").asText();
+                if (!eventId.isBlank()) {
+                    return eventId;
+                }
+            }
+        } catch (JsonProcessingException ignored) {
+            return KinesisProducerService.fallbackDlqEventId(
+                    json, partitionKey, streamKey, sequenceNumber);
+        }
+        return KinesisProducerService.fallbackDlqEventId(
+                json, partitionKey, streamKey, sequenceNumber);
     }
 
     private void processWithTransientRetries(KinesisEvent event) throws InterruptedException {

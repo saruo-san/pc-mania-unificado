@@ -56,6 +56,8 @@ pc-mania:
     enabled: ${KINESIS_ENABLED:false}
     initial-position: ${KINESIS_INITIAL_POSITION:TRIM_HORIZON}
     lease-table-prefix: ${KINESIS_LEASE_TABLE_PREFIX:pc-mania-kinesis}
+    idempotency-table: ${KINESIS_IDEMPOTENCY_TABLE:pc-mania-kinesis-idempotency}
+    idempotency-retention-hours: ${KINESIS_IDEMPOTENCY_RETENTION_HOURS:24}
     retry:
       max-attempts: ${KINESIS_RETRY_MAX_ATTEMPTS:5}
       initial-delay-ms: ${KINESIS_RETRY_INITIAL_DELAY_MS:500}

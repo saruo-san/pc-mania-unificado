@@ -89,6 +89,21 @@ Resources:
         - AttributeName: orderId
           KeyType: HASH
 
+  KinesisIdempotencyTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: pc-mania-kinesis-idempotency
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: dedupeKey
+          AttributeType: S
+      KeySchema:
+        - AttributeName: dedupeKey
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
   ProductIteratorAgeAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -134,3 +149,5 @@ Outputs:
     Value: !Ref DlqStream
   OrdersTableName:
     Value: !Ref OrdersTable
+  KinesisIdempotencyTableName:
+    Value: !Ref KinesisIdempotencyTable

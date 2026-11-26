@@ -211,7 +211,13 @@ export function crearAlarmasIteratorAge(): Promise<string[]> {
 }
 
 export function obtenerEstadoEventoKinesis(eventId: string): Promise<KinesisEventStatus | null> {
-  return messagingJson<KinesisEventStatus | null>(`/api/kinesis/admin/events/status/${eventId}`);
+  return messagingFetch(`/api/kinesis/admin/events/status/${eventId}`).then(async (response) => {
+    if (!response.ok) {
+      throw new Error(`Mensajería respondió ${response.status}`);
+    }
+    const body = await response.text();
+    return body.trim() ? JSON.parse(body) as KinesisEventStatus : null;
+  });
 }
 
 export function obtenerEstadosEventosKinesis(): Promise<KinesisEventStatus[]> {
